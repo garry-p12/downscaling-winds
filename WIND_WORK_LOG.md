@@ -61,6 +61,7 @@ scripts/mesonet_wind.py              Oklahoma Mesonet download (serial, rate-lim
 scripts/wind_suite.py                evaluation of every run (grid, budget, offset, spectra, stations)
 scripts/wind_report.py               seed statistics, paired station bootstraps, uncertainty test -> wind_summary.md
 scripts/wind_drift.py                year-by-year AORC vs POWER drift and model bias (Q7)
+scripts/wind_texture_diag.py         how much of AORC's fine-scale daily anomaly is predictable (section 7c)
 scripts/wind_inference_maps.py       input, inference, test-year, ladder and LORO map sheets -> outputs/wind/maps/
 slurm/wind_00_setup.sh               login-node setup and checks (also patches data/build_dataset.py, see below)
 slurm/vista_wind_data.sh             POWER download, 10/25/5 km stores
@@ -353,6 +354,44 @@ python scripts/wind_inference_maps.py --runs w10_A0_s1337 w10_A4_s1337 w10_A8_s1
 python scripts/wind_inference_maps.py --runs w1_L_s1337 --only ladder testyear     # after the 1 km training
 scp "vista2:/work/11755/gurup12/vista/downscaling/outputs/wind/maps/*.png" outputs/wind/maps/   # on the Mac
 ```
+
+## 7c. Why structure and texture do not improve (13 Nov diagnosis)
+
+All on the 10 km holdout, test year 2023 unless stated, w10 L s1337, anomaly space (store climatology removed).
+
+Predictability of AORC's daily anomaly below 100 km (`scripts/wind_texture_diag.py`, high-pass Gaussian at 100 km):
+
+| Predictor | r2 | amplitude / AORC |
+|---|---|---|
+| model | 0.15 | 0.53 |
+| ridge on 29 flow x terrain features (u.grad h, speed x TPI, roughness, aspect), fit in the training region | 0.10 | 0.20 |
+| ridge + model | 0.16 | 0.44 |
+| per-cell climatology by POWER direction (8) x speed (3), 2019-21, holdout cells' own history | 0.19 | 0.45 |
+| that + model (weights fit on 2022) | 0.22 | 0.47 |
+
+Scale bands, r2 between daily anomalies over the holdout:
+
+| Band | sd AORC | sd ERA5-Land | sd model | AORC~ERA5-Land | AORC~model | AORC~POWER |
+|---|---|---|---|---|---|---|
+| < 100 km | 0.23 | 0.06 | 0.13 | 0.05 | 0.17 | 0.04 |
+| 100-300 km | 0.27 | 0.13 | 0.12 | 0.18 | 0.18 | 0.14 |
+| > 300 km | 1.15 | 1.07 | 0.96 | 0.89 | 0.88 | 0.87 |
+
+At the 44 ISD stations (2022-23), daily departure from POWER with each series' mean removed:
+r(station, AORC) median 0.88, r(station, model) 0.32; de-biased RMSE POWER 0.67, AORC 0.32, model 0.68 m/s.
+
+Reading:
+
+1. AORC's fine-scale daily wind is real at stations (r 0.88) but carries information POWER does not have; ERA5-Land
+   does not have it either (r2 0.05 with AORC below 100 km). Most likely AORC's wind takes in surface observations
+   (airport stations among them, so ISD is not fully independent of AORC; check the AORC wind provenance).
+2. No loss, architecture or terrain feature can place that structure from POWER: the best predictor found explains
+   22% of it, the model 15%. At stations the model adds no daily skill over POWER once bias is removed; its station
+   gains are level (bias) plus the static texture carried by the climatology.
+3. So "drastically better structure" needs either new information (observations, or a finer analysis such as
+   HRRR/RTMA, as an input) or a generative model that gives the right texture statistics without placing it.
+4. Mesonet obs are NaN in `_ref_*.npz` (obs only stored for ISD keys); redo the station check with
+   `mesonet_daily.csv`.
 
 ## 8. What remains
 
