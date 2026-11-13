@@ -70,6 +70,10 @@ CH = {
 }
 for _lc in ("water", "developed", "barren", "forest", "shrub", "herbaceous", "cultivated", "wetland"):
     CH[f"lc_{_lc}"] = (f"{_lc.capitalize()} fraction", "", "frac")
+CH.update({"obs_dep25": ("Station departure, 25 km kernel", "m/s", "div"),
+           "obs_dep75": ("Station departure, 75 km kernel", "m/s", "div"),
+           "obs_w25": ("Station weight, 25 km kernel", "", "seq"),
+           "obs_w75": ("Station weight, 75 km kernel", "", "seq")})
 SKIP_INPUT = {"doy_sin", "doy_cos", "land_mask"}          # constant in space on any one day / the mask itself
 
 
@@ -100,7 +104,7 @@ _MODELS: dict = {}
 
 
 def predict(st: Store, run: str, days: np.ndarray) -> np.ndarray:
-    """(len(days), H, W) prediction, ANOMALY m/s. Cache read if present; otherwise CPU, nothing written."""
+    """(len(days), H, W) prediction, ANOMALY m/s. Cache read if present; otherwise DOWNSCALE_DEVICE (default cpu), nothing written."""
     cp = cache_path(st, run)
     if cp.exists():
         return np.asarray(np.load(cp, mmap_mode="r")[days])
@@ -109,13 +113,14 @@ def predict(st: Store, run: str, days: np.ndarray) -> np.ndarray:
     from data.build_dataset import NO_NORMALIZE
     from models.model import load_checkpoint
     torch.set_num_threads(int(os.environ.get("DOWNSCALE_MAX_WORKERS", "4")))
+    device = os.environ.get("DOWNSCALE_DEVICE", "cpu")
     if run not in _MODELS:
-        _MODELS[run] = load_checkpoint(REPO / "checkpoints" / run / "last.pt", "cpu", load_config("model"))
+        _MODELS[run] = load_checkpoint(REPO / "checkpoints" / run / "last.pt", device, load_config("model"))
     model, mcfg = _MODELS[run]
     names = list(mcfg.get("use_channels") or st.stored)
     idx = [st.stored.index(n) for n in names]
     out = np.empty((len(days), *st.shape), "float32")
-    log(f"    {run}: no cached field, predicting {len(days)} day(s) on CPU")
+    log(f"    {run}: no cached field, predicting {len(days)} day(s) on {device}")
     for n, k in enumerate(days):
         x = np.asarray(st._zarr["input"][int(k)])[idx].astype("float32")
         for c, nm in enumerate(names):
@@ -123,7 +128,7 @@ def predict(st: Store, run: str, days: np.ndarray) -> np.ndarray:
                 x[c] = st.nz.transform(f"in::{nm}", x[c])
         np.nan_to_num(x, copy=False)
         with torch.no_grad():
-            y = model(torch.from_numpy(x).unsqueeze(0), {"temp"})["temp"][0, 0].numpy()
+            y = model(torch.from_numpy(x).unsqueeze(0).to(device), {"temp"})["temp"][0, 0].cpu().numpy()
         out[n] = st.nz.inverse("out::tmp", y)
     return out
 

@@ -1,0 +1,6 @@
+# Wind station fusion (scripts/wind_obs_store.py): data_sc_wind_dyn plus four same-day ISD channels.
+# Fold 1: the holdout stations of fold 1 are inputs; the model is scored at the other fold.
+extends: data_sc_wind_dyn
+
+dataset:
+  out_zarr: "data_store_sc/wind_obs_f1/dataset.zarr"

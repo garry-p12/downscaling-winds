@@ -393,6 +393,31 @@ Reading:
 4. Mesonet obs are NaN in `_ref_*.npz` (obs only stored for ISD keys); redo the station check with
    `mesonet_daily.csv`.
 
+## 7d. Station fusion (A) and residual diffusion (B), submitted 13 Nov
+
+Decision (13 Nov): fine-scale structure needs observations, so add same-day ISD stations as inputs (A), with
+residual diffusion on top for texture (B). The product becomes POWER + stations.
+
+- `scripts/wind_obs_store.py`: 196 ISD stations active 2019-2023 on land in the domain, 190 with >= 300 train days
+  (42 in the holdout, folds A 21 / B 21, random, seed 0). Departure = daily mean ISD speed - interpolated POWER WS10M,
+  minus each station's own train-period mean and annual harmonic. Four channels: kernel mean of departures at 25 and
+  75 km and the kernel weights. Outside the holdout a random 60% of stations per day (seeded by day); inside, fold f
+  in store f. Stores `data_store_sc/wind_obs_f{0,1}` (31 channels; first 27 identical to wind_dyn, checked).
+  Outputs: `outputs/wind/obs_stations.json`, `obs_departures.npy`, `isd_domain_daily.csv`.
+- Sanity: the 75 km kernel departure alone tracks the WITHHELD stations' departures at median r 0.63 (both folds),
+  against 0.32 for the no-station model.
+- Plan group `obs` (5 runs, fold-0 store): DeepSD LO x 3 seeds, DeepSD A8O, U-Net LO.
+- `scripts/wind_obs_eval.py`: scores both folds, ISD only at the non-input fold, Mesonet (never input); references
+  POWER, AORC, kernel interpolation, no-station models -> `outputs/wind/obs_eval.{json,md}`.
+- `scripts/wind_diffusion.py`: EDM residual diffusion (models/diffusion.py) on the mean of the three LO seeds,
+  conditioned on LO channels + the deterministic field; 25 members of 2023 on both fold stores; CRPS, spread/skill,
+  80% coverage, band sd ratios -> `outputs/wind/diffusion/obs_score.json`.
+
+| Job | What | Partition |
+|---|---|---|
+| 1142301 | wind-obs: train group obs, obs eval, maps | gh-dev, 2 h |
+| 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h |
+
 ## 8. What remains
 
 0. Redraw the maps for the ablation, architecture, target and 1 km runs (section 7b).
