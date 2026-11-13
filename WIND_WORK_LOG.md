@@ -418,6 +418,23 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 | 1142301 | wind-obs: train group obs, obs eval, maps | gh-dev, 2 h |
 | 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h |
 
+### References and the non-ML bar (13 Nov, login node, before the fusion runs)
+
+2023, mean of both folds; ISD only at the withheld fold (21 stations each), Mesonet (30) never an input.
+`outputs/wind/obs_eval.md` (references) and `obs_hybrid.md` (model + kernel residuals, `scripts/wind_obs_hybrid.py`).
+
+| Variant | grid RMSE | grid bias | r2 <100 | r2 100-300 | ISD de-biased | ISD r_dep | Meso de-biased | Meso r_dep |
+|---|---|---|---|---|---|---|---|---|
+| POWER | 1.128 | +0.84 | 0.00 | 0.11 | 0.671 | 0 | 0.627 | 0 |
+| kernel 75 km over POWER | 1.161 | +0.98 | 0.01 | 0.16 | 0.517 | 0.64 | 0.517 | 0.58 |
+| w10 L (3 seeds) | 0.773 | -0.43 | 0.15 | 0.14 | 0.671 | 0.38 | 0.523 | 0.52 |
+| w10 A8 s1337 | 0.838 | -0.48 | 0.16 | 0.12 | 0.722 | 0.34 | 0.522 | 0.53 |
+| **w10 L + 75 km station residuals** | **0.623** | -0.32 | 0.15 | 0.20 | **0.520** | **0.65** | **0.491** | **0.65** |
+| AORC | 0 | 0 | 1 | 1 | 0.311 | 0.88 | 0.352 | 0.82 |
+
+The fusion network must beat model + residuals (grid 0.62, ISD de-biased 0.52, r_dep 0.65); if not, that simple
+combination is the product and diffusion goes on top of it. Stations do not move < 100 km (spacing ~70 km).
+
 ## 8. What remains
 
 0. Redraw the maps for the ablation, architecture, target and 1 km runs (section 7b).
