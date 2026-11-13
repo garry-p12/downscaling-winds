@@ -1,6 +1,6 @@
 # Wind downscaling: work log and handoff
 
-Status as of 13 November 2026. This file records everything done and submitted for the wind downscaling work, so it can be
+Status as of 13 November 2026 (updated 12:40 with the inference maps). This file records everything done and submitted for the wind downscaling work, so it can be
 moved into its own repository and continued from there. `WIND_PLAN.md` holds the experiment design; this file holds the
 methods as implemented, every job submitted, what went wrong, what has been learned so far, and what remains.
 
@@ -61,6 +61,7 @@ scripts/mesonet_wind.py              Oklahoma Mesonet download (serial, rate-lim
 scripts/wind_suite.py                evaluation of every run (grid, budget, offset, spectra, stations)
 scripts/wind_report.py               seed statistics, paired station bootstraps, uncertainty test -> wind_summary.md
 scripts/wind_drift.py                year-by-year AORC vs POWER drift and model bias (Q7)
+scripts/wind_inference_maps.py       input, inference, test-year, ladder and LORO map sheets -> outputs/wind/maps/
 slurm/wind_00_setup.sh               login-node setup and checks (also patches data/build_dataset.py, see below)
 slurm/vista_wind_data.sh             POWER download, 10/25/5 km stores
 slurm/vista_wind_era5.sh             ERA5-Land download and store
@@ -239,6 +240,9 @@ Decision: stop at 30 stations. `outputs/wind/mesonet_daily.csv` is the 30-statio
 
 Trained so far: 82 of 85 runs (all except the three 1 km seeds).
 
+Checked 13 Nov, about 12:40: 1137883 (eval ablation, arch, target) still PENDING (Priority); 1139934-36 PENDING
+(Priority); 1139937 PENDING (Dependency). Nothing failed.
+
 ---
 
 ## 6. Problems met and fixes (keep these in mind)
@@ -308,8 +312,51 @@ Reading so far (preliminary):
 
 ---
 
+## 7b. Inference maps (13 Nov)
+
+`scripts/wind_inference_maps.py` draws, in m/s with each field's day-of-year climatology added back:
+
+| Sheet | Content |
+|---|---|
+| `inputs_<store>_<chan>_<day>.png` | every channel the run sees that day (except day-of-year sin/cos and the land mask), POWER direction as arrows |
+| `inference_<run>_<day>.png` | POWER, AORC, model, correction made; POWER error and model error on one scale; correction needed vs made; holdout RMSE bars (grid and ISD); ISD circles and Mesonet squares coloured with observed daily means |
+| `testyear_<run>.png` | 2023 mean (AORC, POWER, model), bias, per-cell RMSE, RMSE change |
+| `ladder_<day>.png` | 25, 10, 5 km (and 1 km once trained) on the same day |
+| `loro_<day>.png` | west, coast and north holdouts at 10 km |
+
+Days are picked automatically from the 10 km holdout mean AORC speed in 2023: windy 2023-02-10 (5.95 m/s), typical
+2023-04-22 (3.18), calm 2023-11-16 (1.40). Predictions are read from `.field_cache` when the eval has made them;
+otherwise only the needed days are run on CPU and nothing is written to the cache (its key has no device, so a CPU
+entry would become the field a later GPU eval scores). It runs on a login node in about 2 minutes for the 6 ladder and
+LORO runs.
+
+First set made 13 Nov: w25/w10/w5 L s1337 and the three 10 km LORO runs (45 sheets, in `outputs/wind/maps/`, copied
+to the Mac). Reading:
+
+- The 2023 sheet for w10 L reproduces the eval: POWER RMSE 1.13, model 0.78; POWER bias +0.84, model -0.43. The model
+  removes POWER's high bias almost everywhere and then goes too low, most in the holdout and the east.
+- On the windy day (2023-02-10) the model beats POWER on the grid (1.21 vs 1.33) but is worse at the 43 ISD stations
+  (1.52 vs 1.26): it lowers speeds by 1-3 m/s nearly everywhere, and the correction-made vs needed slope is only 0.26.
+  The station problem is a level problem, not a pattern problem.
+- The ladder sheet shows why finer grids do not help: at 5 km AORC gains terrain-scale detail (ridges, Hill Country
+  valleys) that the model reproduces only in a smoothed form, and the error map at all three grids is dominated by
+  the same broad negative offset in the holdout.
+- Land-cover fractions show straight-line stripes in Mexico (south-west corner, e.g. developed and water fraction).
+  Probably nearest-cell fill outside NLCD; check before the paper's input figure.
+
+To redraw after eval 1137883 has cached the ablation, architecture and target fields:
+
+```bash
+cd $WORK/downscaling
+python scripts/wind_inference_maps.py --runs w10_A0_s1337 w10_A4_s1337 w10_A8_s1337 w10_unet_A8_s1337 \
+    w10_swinir_A8_s1337 w10e_A8_s1337 --only inference testyear
+python scripts/wind_inference_maps.py --runs w1_L_s1337 --only ladder testyear     # after the 1 km training
+scp "vista2:/work/11755/gurup12/vista/downscaling/outputs/wind/maps/*.png" outputs/wind/maps/   # on the Mac
+```
+
 ## 8. What remains
 
+0. Redraw the maps for the ablation, architecture, target and 1 km runs (section 7b).
 1. Wait for eval 1137883 (ablation, architecture, target, plus drift). Then `cat outputs/wind/wind_summary.md`.
 2. Wait for the 1 km training (1139934-36) and its eval (1139937); add the 1 km rung to the ladder.
 3. Copy results to the Mac:
