@@ -17,7 +17,9 @@ Usage:
     DOWNSCALE_DEVICE=cuda python scripts/wind_diffusion.py --epochs 60          # train + sample + score
     python scripts/wind_diffusion.py --sample-only                               # resume from checkpoint
     python scripts/wind_diffusion.py --score-only [--center]                      # -> <tag>[_centered]_score.json
-    DOWNSCALE_DEVICE=cuda python scripts/wind_diffusion.py --train-split val --epochs 400 --tag obsval
+    DOWNSCALE_DEVICE=cuda python scripts/wind_diffusion.py --train-split val --epochs 600 --tag obsval
+    DOWNSCALE_DEVICE=cuda python scripts/wind_diffusion.py --train-split val --epochs 600 --tag obsvaldet \
+        --deterministic --members 1                                              # control: same data, no diffusion
     python scripts/wind_diffusion.py --base w10_L_s1337 w10_L_s7 w10_L_s42 --tag nostation   # on the POWER-only model
 """
 from __future__ import annotations
@@ -75,9 +77,34 @@ def build(tag_store, base, channels, days=None):
     return st, cond, det, T
 
 
+class DetResidual(torch.nn.Module):
+    """Control for the diffusion: the same ResidualDenoiser, same conditioning and data, trained with masked MSE to
+    predict the residual directly (no noise input, fixed noise embedding). Exposes loss() and sample() like EDM, so
+    train/sample/score run unchanged; sample() returns the single deterministic residual."""
+
+    def __init__(self, net, sigma_data: float):
+        super().__init__()
+        self.net, self.sigma_data = net, sigma_data
+
+    def _pred(self, cond):
+        n, _, h, w = cond.shape
+        z = torch.zeros(n, 1, h, w, device=cond.device, dtype=cond.dtype)
+        return self.net(z, cond, torch.ones(n, device=cond.device)) * self.sigma_data
+
+    def loss(self, target, cond, mask=None):
+        se = (self._pred(cond) - target) ** 2
+        return se.mean() if mask is None else (se * mask).sum() / mask.sum().clamp(min=1.0)
+
+    @torch.no_grad()
+    def sample(self, cond, steps=None, generator=None, **kw):
+        return self._pred(cond)
+
+
 def crps_ens(X, y):
     """Fair ensemble CRPS, X (m, N), y (N). Mean over N."""
     m = X.shape[0]
+    if m < 2:
+        return float("nan")
     t1 = np.mean(np.abs(X - y[None]), axis=0)
     Xs = np.sort(X, axis=0)
     i = np.arange(1, m + 1)[:, None]
@@ -95,7 +122,8 @@ def train(a, base, channels, tag_store):
     device = torch.device(a.device if torch.cuda.is_available() or a.device == "cpu" else "cpu")
     sigma_data = float(resid[tr][:, lmask > 0].std())
     log(f"store {tag_store}, base {base}, {cond.shape[1]} conditioning channels, residual sd {sigma_data:.4f} m/s")
-    net = EDM(ResidualDenoiser(cond_channels=cond.shape[1], width=a.width), sigma_data=sigma_data).to(device)
+    den = ResidualDenoiser(cond_channels=cond.shape[1], width=a.width)
+    net = (DetResidual(den, sigma_data) if a.deterministic else EDM(den, sigma_data=sigma_data)).to(device)
     ck = REPO / "checkpoints" / f"wind_diffusion_{a.tag}" / "last.pt"
     ck.parent.mkdir(parents=True, exist_ok=True)
     start = 0
@@ -244,4 +272,6 @@ if __name__ == "__main__":
     p.add_argument("--train-split", default="train", choices=["train", "val"],
                    help="days whose residuals the diffusion learns (val = 2022, out-of-sample for the base model)")
     p.add_argument("--center", action="store_true", help="score members re-centred on the deterministic field")
+    p.add_argument("--deterministic", action="store_true",
+                   help="control: same network and data, MSE on the residual, one member (use with --members 1)")
     main(p.parse_args())

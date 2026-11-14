@@ -418,6 +418,7 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 | 1142301 | wind-obs: train group obs, obs eval, maps | gh-dev, 2 h (COMPLETED 1 h 16 min) |
 | 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h (COMPLETED 4.5 min) |
 | 1143913 | wind-diff on 2022 residuals, 600 epochs, tag obsval | gh-dev, 45 min (COMPLETED 8 min) |
+| 1143995 | control: same net and 2022 residuals, MSE, no diffusion (`--deterministic --members 1`, tag obsvaldet) | gh-dev, 30 min |
 
 ### References and the non-ML bar (13 Nov, login node, before the fusion runs)
 
@@ -548,8 +549,9 @@ Decomposition of the ensemble-mean gain (`scripts/wind_diffusion_decomp.py`, fol
   conditional: it shifts where and when 2022 says the model is low, and leaves Oklahoma, which has no bias, alone.
 - Part of the gain is learning the drift from the most recent year, including AORC's drift away from the stations.
   The withheld-ISD gain shows it is not only AORC chasing.
-- Control still owed: a deterministic network trained on the same 2022 residuals, or the base model retrained on
-  2019-2022. Without it, the gain cannot be credited to diffusion rather than to "learn from 2022".
+- Control (job 1143995, tag obsvaldet): the same ResidualDenoiser trained with masked MSE on the same 2022 residuals
+  (`--deterministic`). If it also reaches about 0.50, the gain comes from learning from 2022, and diffusion adds only
+  texture and spread.
 - Still under-dispersed (spread/skill 0.59, ISD cover80 0.38). Use raw members, not centred: centring throws away the
   learned shift.
 
