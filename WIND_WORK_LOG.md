@@ -1,6 +1,6 @@
 # Wind downscaling: work log and handoff
 
-Status as of 13 November 2026 (updated 12:40 with the inference maps). This file records everything done and submitted for the wind downscaling work, so it can be
+Status as of 14 November 2026 (fusion results, stacking and drift in section 7d). This file records everything done and submitted for the wind downscaling work, so it can be
 moved into its own repository and continued from there. `WIND_PLAN.md` holds the experiment design; this file holds the
 methods as implemented, every job submitted, what went wrong, what has been learned so far, and what remains.
 
@@ -415,8 +415,8 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 
 | Job | What | Partition |
 |---|---|---|
-| 1142301 | wind-obs: train group obs, obs eval, maps | gh-dev, 2 h |
-| 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h |
+| 1142301 | wind-obs: train group obs, obs eval, maps | gh-dev, 2 h (COMPLETED 1 h 16 min) |
+| 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h (pending, est. start 14 Nov 04:30) |
 
 ### References and the non-ML bar (13 Nov, login node, before the fusion runs)
 
@@ -434,6 +434,69 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 
 The fusion network must beat model + residuals (grid 0.62, ISD de-biased 0.52, r_dep 0.65); if not, that simple
 combination is the product and diffusion goes on top of it. Stations do not move < 100 km (spacing ~70 km).
+
+### Fusion results (job 1142301, 13 Nov 20:40-21:56, 1 h 16 min, no errors)
+
+`outputs/wind/obs_eval.md`. 2023, mean of both folds.
+
+| Variant | grid RMSE | grid bias | r2 <100 | r2 100-300 | ISD de-biased | ISD r_dep | Meso de-biased | Meso r_dep |
+|---|---|---|---|---|---|---|---|---|
+| w10 L + 75 km residuals (bar) | **0.623** | -0.32 | 0.15 | 0.20 | **0.520** | **0.65** | 0.491 | 0.65 |
+| w10o0 LO s1337 | 0.645 | -0.31 | 0.17 | 0.24 | 0.614 | 0.56 | 0.446 | 0.69 |
+| w10o0 LO s7 | 0.652 | -0.31 | 0.16 | 0.24 | 0.619 | 0.55 | 0.449 | 0.69 |
+| w10o0 LO s42 | 0.665 | -0.34 | 0.16 | 0.23 | 0.618 | 0.55 | 0.443 | 0.70 |
+| w10o0 A8O s1337 | 0.677 | -0.35 | 0.17 | 0.24 | 0.630 | 0.53 | 0.438 | 0.70 |
+| w10o0 U-Net LO s1337 | 0.662 | -0.27 | 0.14 | 0.11 | 0.622 | 0.55 | **0.433** | **0.72** |
+
+- The network does not beat the hybrid on the grid or at the withheld ISD stations. It does beat it at Mesonet
+  (de-biased 0.44 against 0.49, r 0.70 against 0.65). Likely cause: MSE training shrinks the station signal. The
+  hybrid adds it at full weight, and that pays off at ISD airports, whose neighbours are also airports.
+- Texture is unchanged: r2 < 100 km is 0.14-0.17 for every variant. At 100-300 km it rises from 0.14 to 0.24.
+- Grid bias of -0.31 is about 22% of the MSE.
+- Maps: `outputs/wind/maps/{inputs,inference,testyear}_w10o0_*`. On the test-year RMSE map, the error comes in round
+  blobs 50-80 km across, the size of the station kernels. A station that does not represent its area spreads its
+  error over a kernel disk.
+
+### Stacking: residuals on top of the fusion network (`wind_obs_hybrid.py --runs w10o0_LO_s1337 --out obs_stack`)
+
+The network's own residuals at its input stations, de-biased and kernel-spread as in the hybrid, then added back.
+`outputs/wind/obs_stack.md`.
+
+| Variant | grid RMSE | grid bias | r2 <100 | r2 100-300 | ISD de-biased | ISD r_dep | Meso de-biased | Meso r_dep |
+|---|---|---|---|---|---|---|---|---|
+| w10o0 LO s1337 | 0.645 | -0.31 | 0.17 | 0.24 | 0.614 | 0.56 | **0.446** | **0.69** |
+| + 75 km residuals | **0.599** | -0.30 | 0.17 | 0.26 | 0.531 | 0.64 | 0.488 | 0.66 |
+| + 25 km residuals | 0.629 | -0.30 | 0.15 | 0.24 | 0.561 | 0.62 | 0.539 | 0.63 |
+| + blend | 0.609 | -0.30 | 0.14 | 0.27 | 0.542 | 0.63 | 0.515 | 0.64 |
+
+- Stacking gives the best grid RMSE so far (0.599) and matches the hybrid at ISD. It gives up the network's lead at
+  Mesonet.
+- The scorers disagree. Full-weight ISD residuals help against AORC and ISD but hurt against Mesonet. AORC tracks
+  ISD (r 0.88) more closely than Mesonet (0.82) and may share sources with the airport network. That makes Mesonet the
+  most independent judge, although its stations sit in the training region and are only temporally independent.
+- Any residual weight between 0 and 1 must be chosen on 2022, not on the test year.
+
+### Drift: the 2023 bias is half POWER, half AORC (`scripts/wind_bias_years.py`, login node)
+
+`outputs/wind/bias_years.md`, model w10_L_s1337. Grid columns: mean over land cells. ISD columns: all 190 stations,
+each against its own cell.
+
+| year | split | POWER-AORC hold | model-AORC hold | POWER-AORC out | model-AORC out | ISD-AORC | ISD-POWER | ISD-model |
+|---|---|---|---|---|---|---|---|---|
+| 2019 | train | +1.617 | +0.269 | +0.829 | +0.095 | +0.426 | -0.698 | +0.263 |
+| 2020 | train | +1.336 | +0.002 | +0.704 | -0.019 | +0.241 | -0.699 | +0.256 |
+| 2021 | train | +0.857 | -0.379 | +0.538 | -0.144 | +0.015 | -0.625 | +0.269 |
+| 2022 | val | +0.775 | -0.577 | +0.467 | -0.260 | +0.040 | -0.543 | +0.433 |
+| 2023 | test | +0.844 | -0.433 | +0.484 | -0.206 | +0.092 | -0.503 | +0.413 |
+
+- AORC gets windier relative to the stations: ISD-AORC falls from 0.43 to about 0.05, mostly over 2019-2021.
+- POWER gets calmer relative to the stations: ISD-POWER rises from -0.70 to -0.50.
+- The holdout drifts about twice as much as the training region (POWER-AORC falls 1.6 to 0.8, against 0.8 to 0.5).
+- The model is stable against the stations in the training years (ISD-model +0.26) and drifts by 0.15 in 2022-23,
+  following POWER.
+- Of the 2023 grid bias (-0.43 against a train-period mean of -0.04), about 0.15 is POWER drift, which the stations
+  can correct. The rest is AORC drifting away from the stations. No model should chase that part. The de-biased
+  station scores (rmse_db, r_dep) are blind to both, so they remain the honest measure.
 
 ## 8. What remains
 
