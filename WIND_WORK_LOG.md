@@ -416,7 +416,8 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 | Job | What | Partition |
 |---|---|---|
 | 1142301 | wind-obs: train group obs, obs eval, maps | gh-dev, 2 h (COMPLETED 1 h 16 min) |
-| 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h (pending, est. start 14 Nov 04:30) |
+| 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h (COMPLETED 4.5 min) |
+| 1143913 | wind-diff on 2022 residuals, 600 epochs, tag obsval | gh-dev, 45 min (pending, est. start 14 Nov 12:50) |
 
 ### References and the non-ML bar (13 Nov, login node, before the fusion runs)
 
@@ -497,6 +498,28 @@ each against its own cell.
 - Of the 2023 grid bias (-0.43 against a train-period mean of -0.04), about 0.15 is POWER drift, which the stations
   can correct. The rest is AORC drifting away from the stations. No model should chase that part. The de-biased
   station scores (rmse_db, r_dep) are blind to both, so they remain the honest measure.
+
+### Residual diffusion, first run (job 1142302, 14 Nov 03:07-03:12, 4.5 min)
+
+Base: mean of the three LO seeds. Trained on train-year residuals, 60 epochs (about 8,000 steps, loss still falling),
+25 members of 2023 on both fold stores. `outputs/wind/diffusion/obs_score.json` and `obs_centered_score.json`
+(`--score-only --center`: members re-centred so that the ensemble mean equals the deterministic field). Mean of folds.
+
+| | grid RMSE | member <100 km sd ratio / r2 | grid CRPS (det MAE) | spread/skill | ISD CRPS (det MAE) | ISD cover80 | Meso CRPS (det MAE) | Meso cover80 |
+|---|---|---|---|---|---|---|---|---|
+| deterministic | 0.648 | 0.51 / 0.18 | (0.493) | | (0.709) | | (0.460) | |
+| ensemble, raw | mean 0.701, member 0.788 | 0.89 / 0.05 | 0.416 | 0.50 | 0.613 | 0.31 | 0.335 | 0.56 |
+| ensemble, centred | mean 0.648, member 0.740 | 0.90 / 0.06 | 0.372 | 0.55 | 0.574 | 0.34 | 0.333 | 0.57 |
+
+- Texture amplitude comes back (sd ratio below 100 km rises from 0.51 to 0.90). As expected, its placement is random
+  (r2 0.06), so the ensemble is useful as a distribution and not as a sharper point estimate.
+- The raw ensemble mean is worse than the deterministic field. Centring fixes that at no cost.
+- The ensemble is too narrow: spread/skill 0.55, and ISD 80% coverage about 0.33. Cause: the residuals were learned on
+  the train years, where the base model is in-sample (residual sd 0.50 against a test RMSE of 0.65 plus the drift
+  bias).
+- Fix submitted as job 1143913 (gh-dev, 45 min): `EPOCHS=600 TAG=obsval EXTRA="--train-split val"`. It learns the 2022
+  residuals, which are out-of-sample for the base model, then scores raw and centred
+  (`outputs/wind/diffusion/obsval_score.json`, `obsval_centered_score.json`).
 
 ## 8. What remains
 

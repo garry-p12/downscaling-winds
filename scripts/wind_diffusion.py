@@ -16,7 +16,8 @@ on BOTH fold stores (so stations are scored only where they were not inputs), th
 Usage:
     DOWNSCALE_DEVICE=cuda python scripts/wind_diffusion.py --epochs 60          # train + sample + score
     python scripts/wind_diffusion.py --sample-only                               # resume from checkpoint
-    python scripts/wind_diffusion.py --score-only
+    python scripts/wind_diffusion.py --score-only [--center]                      # -> <tag>[_centered]_score.json
+    DOWNSCALE_DEVICE=cuda python scripts/wind_diffusion.py --train-split val --epochs 400 --tag obsval
     python scripts/wind_diffusion.py --base w10_L_s1337 w10_L_s7 w10_L_s42 --tag nostation   # on the POWER-only model
 """
 from __future__ import annotations
@@ -87,7 +88,9 @@ def crps_ens(X, y):
 def train(a, base, channels, tag_store):
     st, cond, det, T = build(tag_store, base, channels)
     resid = np.nan_to_num(T - det).astype("float32")
-    tr = st.i_train
+    # which days' residuals to learn: "train" (in-sample for the base model, residuals too small) or "val" (2022,
+    # out-of-sample for the base model, so the residual spread and drift are realistic)
+    tr = np.where(st.split == a.train_split)[0]
     lmask = (st.m_train & np.isfinite(T).all(0)).astype("float32")
     device = torch.device(a.device if torch.cuda.is_available() or a.device == "cpu" else "cpu")
     sigma_data = float(resid[tr][:, lmask > 0].std())
@@ -161,6 +164,8 @@ def score(a, base_store):
     for store_tag in fold_tags(base_store):
         E = np.load(OUT / f"{a.tag}_{store_tag}_test.npy", mmap_mode="r")
         det = np.load(OUT / f"{a.tag}_{store_tag}_det.npy")
+        if a.center:                       # members re-centred on the deterministic field: ensemble mean == det
+            E = np.asarray(E) - np.asarray(E).mean(0, keepdims=True) + det[None]
         if not store_tag.startswith("w10o"):
             raise SystemExit("scoring is implemented for the fold stores; pass a w10o* base")
         F = woe.Fold(int(store_tag[-1]), stations, isd)
@@ -202,7 +207,7 @@ def score(a, base_store):
                               n=len(cr))
         res[store_tag] = r
         log(f"{store_tag}: {json.dumps(r, default=float)[:600]}")
-    (OUT / f"{a.tag}_score.json").write_text(json.dumps(res, indent=1, default=float))
+    (OUT / f"{a.tag}{'_centered' if a.center else ''}_score.json").write_text(json.dumps(res, indent=1, default=float))
 
 
 def main(a):
@@ -236,4 +241,7 @@ if __name__ == "__main__":
     p.add_argument("--device", default=os.environ.get("DOWNSCALE_DEVICE", "cuda"))
     p.add_argument("--sample-only", action="store_true")
     p.add_argument("--score-only", action="store_true")
+    p.add_argument("--train-split", default="train", choices=["train", "val"],
+                   help="days whose residuals the diffusion learns (val = 2022, out-of-sample for the base model)")
+    p.add_argument("--center", action="store_true", help="score members re-centred on the deterministic field")
     main(p.parse_args())

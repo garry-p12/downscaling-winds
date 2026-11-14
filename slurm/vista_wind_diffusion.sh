@@ -12,5 +12,7 @@
 set -uo pipefail
 cd "${WORK}/downscaling"; mkdir -p logs
 export PYTHON="${WORK}/miniforge3/envs/dsc/bin/python" DOWNSCALE_MAX_WORKERS=8 PYTHONUNBUFFERED=1 DOWNSCALE_DEVICE=cuda
-$PYTHON -u scripts/wind_diffusion.py --epochs "${EPOCHS:-60}" --tag "${TAG:-obs}" || echo "!!! diffusion failed"
+# EXTRA passes more options, e.g. EXTRA="--train-split val" (learn 2022 residuals, out-of-sample for the base model)
+$PYTHON -u scripts/wind_diffusion.py --epochs "${EPOCHS:-60}" --tag "${TAG:-obs}" ${EXTRA:-} || echo "!!! diffusion failed"
+$PYTHON -u scripts/wind_diffusion.py --score-only --center --tag "${TAG:-obs}" ${EXTRA:-} || echo "!!! centred score failed"
 echo "=== done $(date)"
