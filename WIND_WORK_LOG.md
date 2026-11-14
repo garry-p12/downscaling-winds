@@ -417,7 +417,7 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 |---|---|---|
 | 1142301 | wind-obs: train group obs, obs eval, maps | gh-dev, 2 h (COMPLETED 1 h 16 min) |
 | 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h (COMPLETED 4.5 min) |
-| 1143913 | wind-diff on 2022 residuals, 600 epochs, tag obsval | gh-dev, 45 min (pending, est. start 14 Nov 12:50) |
+| 1143913 | wind-diff on 2022 residuals, 600 epochs, tag obsval | gh-dev, 45 min (COMPLETED 8 min) |
 
 ### References and the non-ML bar (13 Nov, login node, before the fusion runs)
 
@@ -520,6 +520,38 @@ Base: mean of the three LO seeds. Trained on train-year residuals, 60 epochs (ab
 - Fix submitted as job 1143913 (gh-dev, 45 min): `EPOCHS=600 TAG=obsval EXTRA="--train-split val"`. It learns the 2022
   residuals, which are out-of-sample for the base model, then scores raw and centred
   (`outputs/wind/diffusion/obsval_score.json`, `obsval_centered_score.json`).
+
+### Residual diffusion on 2022 residuals (job 1143913, 14 Nov 11:41-11:49, 8 min)
+
+`EPOCHS=600 TAG=obsval EXTRA="--train-split val"`: learns the 2022 residuals, which are out-of-sample for the base
+model (residual sd 0.58 against 0.50 in-sample), loss 0.90 -> 0.33. `outputs/wind/diffusion/obsval_score.json`,
+`obsval_centered_score.json`. Mean of folds.
+
+| | grid RMSE | member <100 km sd ratio / r2 | grid CRPS (det MAE 0.493) | spread/skill | ISD CRPS (det MAE 0.709) | ISD cover80 | Meso CRPS (det MAE 0.460) | Meso cover80 |
+|---|---|---|---|---|---|---|---|---|
+| obsval raw | **mean 0.503**, member 0.580 | 0.84 / 0.09 | **0.289** | 0.59 | **0.411** | 0.38 | 0.343 | 0.52 |
+| obsval centred | mean 0.648, member 0.713 | 0.77 / 0.08 | 0.384 | 0.46 | 0.589 | 0.30 | 0.338 | 0.52 |
+
+Decomposition of the ensemble-mean gain (`scripts/wind_diffusion_decomp.py`, fold mean):
+
+| | grid RMSE | grid bias | ISD MAE | Meso MAE |
+|---|---|---|---|---|
+| deterministic (3 LO seeds) | 0.648 | -0.32 | 0.709 | 0.460 |
+| det + one constant (+0.41, the mean shift) | 0.570 | | 0.620 | 0.574 |
+| det + per-cell time-mean shift | 0.559 | | | |
+| det + day-varying part only | 0.600 | | | |
+| det minus its own test bias (oracle) | 0.563 | 0 | | |
+| **diffusion ensemble mean** | **0.503** | +0.09 | **0.522** | 0.466 |
+
+- This is the best result so far, ahead of the stack (0.599) and of the oracle-debiased network (0.563). Withheld
+  ISD MAE falls 26%. Mesonet is unchanged, while a constant offset would hurt it (0.57). So the learned correction is
+  conditional: it shifts where and when 2022 says the model is low, and leaves Oklahoma, which has no bias, alone.
+- Part of the gain is learning the drift from the most recent year, including AORC's drift away from the stations.
+  The withheld-ISD gain shows it is not only AORC chasing.
+- Control still owed: a deterministic network trained on the same 2022 residuals, or the base model retrained on
+  2019-2022. Without it, the gain cannot be credited to diffusion rather than to "learn from 2022".
+- Still under-dispersed (spread/skill 0.59, ISD cover80 0.38). Use raw members, not centred: centring throws away the
+  learned shift.
 
 ## 8. What remains
 
