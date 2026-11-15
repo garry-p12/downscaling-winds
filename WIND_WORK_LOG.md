@@ -419,6 +419,7 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 | 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h (COMPLETED 4.5 min) |
 | 1143913 | wind-diff on 2022 residuals, 600 epochs, tag obsval | gh-dev, 45 min (COMPLETED 8 min) |
 | 1143995 | control: same net and 2022 residuals, MSE, no diffusion (`--deterministic --members 1`, tag obsvaldet) | gh-dev, 30 min (COMPLETED 6 min) |
+| 1144798 | spread calibration: cross-fit diffusion on odd/even months of 2022, fit alpha, score obsvalcal | gh-dev, 50 min |
 
 ### References and the non-ML bar (13 Nov, login node, before the fusion runs)
 
@@ -564,6 +565,25 @@ Decomposition of the ensemble-mean gain (`scripts/wind_diffusion_decomp.py`, fol
   plus the texture and the ensemble. The control is also the stronger deterministic product, ahead of the stack (0.599).
 - Still under-dispersed (spread/skill 0.59, ISD cover80 0.38). Use raw members, not centred: centring throws away the
   learned shift.
+
+### Diffusion maps and calibration (14 Nov)
+
+`scripts/wind_diffusion_maps.py` (login node, reads the saved samples): `outputs/wind/maps/diffusion_obsval_<day>.png`
+(AORC, base, MSE corrector, ensemble mean; three members and spread; errors) and `diffusion_obsval_testyear.png`
+(per-cell RMSE, spread, spread/error map, rank histograms, spread-vs-error).
+
+- Ensemble-mean holdout RMSE on the map days: windy 0.69 (base 1.16, bias -0.90), typical 0.38 (base 0.66), calm in
+  the sheet. Members carry realistic ridge and valley streaks; the mean is smooth.
+- Rank histograms are U-shaped. Outside all 25 members: 26% on the holdout grid, 25% at Mesonet and 46% at withheld
+  ISD (ideal 8%). The ISD histogram is lopsided upward: airports read windier than their 10 km cell, and raw station
+  values are not adjusted for that.
+- Spread vs error rises monotonically (deciles 0.18 -> 0.43 m/s spread, 0.40 -> 0.64 RMSE), so the spread is
+  informative but about 1.7x too narrow.
+- Calibration without touching 2023 (job 1144798, `slurm/vista_wind_diffusion_cv.sh`): two cross-fit diffusion models
+  on odd and even months of 2022 (tags obsvalcva, obsvalcvb; `--months`, `--sample-split val`), each sampling the
+  months it did not see. `scripts/wind_diffusion_calib.py` fits alpha (members about their mean: mean + alpha x
+  deviation) by CRPS on those out-of-fold holdout cells, writes tag obsvalcal for 2023 and scores it
+  (`outputs/wind/diffusion/obsval_calib.json`, `obsvalcal_score.json`).
 
 ## 8. What remains
 

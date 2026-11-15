@@ -32,6 +32,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 
 REPO = Path(__file__).resolve().parent.parent
@@ -118,6 +119,8 @@ def train(a, base, channels, tag_store):
     # which days' residuals to learn: "train" (in-sample for the base model, residuals too small) or "val" (2022,
     # out-of-sample for the base model, so the residual spread and drift are realistic)
     tr = np.where(st.split == a.train_split)[0]
+    if a.months:                                       # cross-fitting: learn only these calendar months
+        tr = tr[np.isin(pd.DatetimeIndex(st.times[tr]).month, a.months)]
     lmask = (st.m_train & np.isfinite(T).all(0)).astype("float32")
     device = torch.device(a.device if torch.cuda.is_available() or a.device == "cpu" else "cpu")
     sigma_data = float(resid[tr][:, lmask > 0].std())
@@ -158,7 +161,9 @@ def train(a, base, channels, tag_store):
 
 def sample(a, net, device, base, channels, store_tag):
     st = wim.store_for(store_tag)
-    te = st.i_test
+    te = np.where(st.split == a.sample_split)[0]
+    if a.sample_months:
+        te = te[np.isin(pd.DatetimeIndex(st.times[te]).month, a.sample_months)]
     _, cond, det, _ = build(store_tag, base, channels, te)
     land = torch.from_numpy(st.land.astype("float32")).to(device)
     net.eval()
@@ -175,9 +180,11 @@ def sample(a, net, device, base, channels, store_tag):
             if (m + 1) % 5 == 0:
                 log(f"  {store_tag}: member {m + 1}/{a.members}")
     OUT.mkdir(parents=True, exist_ok=True)
-    np.save(OUT / f"{a.tag}_{store_tag}_test.npy", mem)
-    np.save(OUT / f"{a.tag}_{store_tag}_det.npy", det)
-    log(f"wrote {OUT / f'{a.tag}_{store_tag}_test.npy'} {mem.shape}")
+    suf = a.sample_split
+    np.save(OUT / f"{a.tag}_{store_tag}_{suf}.npy", mem)
+    np.save(OUT / f"{a.tag}_{store_tag}_{suf}_det.npy" if suf != "test" else OUT / f"{a.tag}_{store_tag}_det.npy", det)
+    np.save(OUT / f"{a.tag}_{store_tag}_{suf}_days.npy", te)
+    log(f"wrote {OUT / f'{a.tag}_{store_tag}_{suf}.npy'} {mem.shape}")
 
 
 def score(a, base_store):
@@ -247,9 +254,10 @@ def main(a):
     base_store = plan[base[0]]["store"]
     if not a.score_only:
         net, device = train(a, base, channels, base_store)
-        for s in fold_tags(base_store):
+        for s in (fold_tags(base_store) if a.sample_split == "test" else [base_store]):
             sample(a, net, device, base, channels, s)
-    score(a, base_store)
+    if a.sample_split == "test":
+        score(a, base_store)
 
 
 if __name__ == "__main__":
@@ -272,6 +280,11 @@ if __name__ == "__main__":
     p.add_argument("--train-split", default="train", choices=["train", "val"],
                    help="days whose residuals the diffusion learns (val = 2022, out-of-sample for the base model)")
     p.add_argument("--center", action="store_true", help="score members re-centred on the deterministic field")
+    p.add_argument("--months", nargs="+", type=int, default=None,
+                   help="train only on these calendar months of --train-split (cross-fitting for calibration)")
+    p.add_argument("--sample-split", default="test", choices=["test", "val"],
+                   help="days to sample; val samples only the base store and skips scoring")
+    p.add_argument("--sample-months", nargs="+", type=int, default=None)
     p.add_argument("--deterministic", action="store_true",
                    help="control: same network and data, MSE on the residual, one member (use with --members 1)")
     main(p.parse_args())
