@@ -1,6 +1,6 @@
 # Wind downscaling: work log and handoff
 
-Status as of 15 November 2026 (ablation, architecture, target and drift in 7e; station fusion, diffusion and its calibration in 7d). This file records everything done and submitted for the wind downscaling work, so it can be
+Status as of 16 November 2026: all experiments finished. `WIND_RESULTS.md` collects every result and the results figures (`scripts/wind_results_figs.py` -> `outputs/wind/maps/results_*.png`, `outputs/wind/results_stage_scores.json`). Ablation, architecture, target and drift in 7e; station fusion, diffusion and its calibration in 7d. This file records everything done and submitted for the wind downscaling work, so it can be
 moved into its own repository and continued from there. `WIND_PLAN.md` holds the experiment design; this file holds the
 methods as implemented, every job submitted, what went wrong, what has been learned so far, and what remains.
 
