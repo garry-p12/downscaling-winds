@@ -241,7 +241,8 @@ Decision: stop at 30 stations. `outputs/wind/mesonet_daily.csv` is the 30-statio
 | 1139011-13, 1139014 | ladder1 training and eval | CANCELLED |
 | 1139933 | km1 build (4 POWER parameters) | COMPLETED, 57 min, peak 167 GB of 237 |
 | 1139934-36 | train ladder1, 3 shards | COMPLETED 15 Nov 01:38-01:50, about 2 h 56 min each |
-| 1139937 | eval ladder1 (8 h) | PENDING (Priority) as of 15 Nov 19:00 |
+| 1139937 | eval ladder1 (8 h) | still PENDING (Priority) 16 Nov 11:20, 33 h after it became eligible; HELD (`scontrol hold`) so it cannot run alongside 1146952. `scontrol release 1139937` if the dev route fails, `scancel` once the 1 km eval is complete |
+| 1146952 | eval ladder1 on gh-dev, 2 h (`sbatch -p gh-dev -t 02:00:00 --export=ALL,WGROUPS=ladder1 slurm/vista_wind_eval.sh`); the suite resumes per run, so resubmit if cut off | submitted 16 Nov 11:23 |
 
 Trained: all 85 runs (15 Nov).
 
@@ -722,7 +723,7 @@ Done 15 Nov: eval 1137883 read (7e), maps for the ablation, architecture and tar
 (7d), results copied to this repository (`outputs/wind/`, PNGs not tracked).
 
 1. Done 15 Nov: two-stage control (job 1145932, 7d). The 2022 corrector beats retraining on 2019-22.
-2. Eval 1139937 (1 km): `cat outputs/wind/wind_summary.md` for the w1 row and the 5 -> 1 km comparison, then
+2. Eval 1146952 (1 km, gh-dev; 1139937 held): `cat outputs/wind/wind_summary.md` for the w1 row and the 5 -> 1 km comparison, then
    `python scripts/wind_inference_maps.py --runs w1_L_s1337 --only ladder testyear` (the ladder sheet picks up w1).
 3. Decide the product for the paper: the calibrated two-stage diffusion ensemble (best on grid and ISD), the MSE
    corrector (0.517, deterministic), or the 2019-22 network (0.544, one stage, best at Mesonet).
