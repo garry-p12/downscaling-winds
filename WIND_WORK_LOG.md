@@ -424,7 +424,7 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 | 1143913 | wind-diff on 2022 residuals, 600 epochs, tag obsval | gh-dev, 45 min (COMPLETED 8 min) |
 | 1143995 | control: same net and 2022 residuals, MSE, no diffusion (`--deterministic --members 1`, tag obsvaldet) | gh-dev, 30 min (COMPLETED 6 min) |
 | 1144798 | spread calibration: cross-fit diffusion on odd/even months of 2022, fit alpha, score obsvalcal | gh-dev, 50 min (COMPLETED 8 min) |
-| 1145932 | wind-obs4: LO fusion on 2019-22 (3 seeds), obs eval, two-stage comparison, maps | gh-dev, 2 h |
+| 1145932 | wind-obs4: LO fusion on 2019-22 (3 seeds), obs eval, two-stage comparison, maps | gh-dev, 2 h (COMPLETED 57 min) |
 
 ### References and the non-ML bar (13 Nov, login node, before the fusion runs)
 
@@ -621,7 +621,7 @@ factor is fitted on out-of-fold 2022 holdout cells only; 2023 is scored once. Me
 and member texture at the right amplitude in all three bands. Below 100 km the texture is realistic in amplitude but
 its placement is random (member r2 < 100 km about 0.07).
 
-### Two-stage control: the fusion network trained on 2019-22 (job 1145932, submitted 15 Nov)
+### Two-stage control: the fusion network trained on 2019-22 (job 1145932, 15 Nov)
 
 Question: is the corrector's gain just "train on the most recent year"? Plan group `obs4` retrains the LO network
 (DeepSD, 3 seeds, names `w10o0_LO4y_s*`) on 2019-22 via an opt-in `DOWNSCALE_TRAIN_SPLITS=train,val` (shared code
@@ -629,6 +629,27 @@ change, see below). `scripts/wind_two_stage.py` then compares, on the same footi
 2019-21, network 2019-22, its oracle de-biased version, network 2019-21 + MSE corrector, + diffusion
 -> `outputs/wind/two_stage.{md,json}`. `wind_obs_eval.py` now also scores the 3-seed means (`w10o0_LO_mean3`,
 `w10o0_LO4y_mean3`). Job: `slurm/vista_wind_obs4.sh` (gh-dev, 2 h).
+
+Result (job 1145932, 15 Nov 21:19-22:16, 57 min, no errors; about 19 min per seed). `outputs/wind/two_stage.md`;
+check: the saved `obsval` det field equals the recomputed 2019-21 seed mean exactly (max diff 0.0).
+
+| 2023, mean of folds | grid RMSE | grid bias | ISD MAE | Meso MAE | r2 < 100 / 100-300 km (obs_eval) |
+|---|---|---|---|---|---|
+| network 2019-21 (3 seeds) | 0.648 | -0.32 | 0.709 | 0.460 | 0.19 / 0.25 |
+| network 2019-22 (3 seeds) | 0.544 | -0.19 | 0.621 | **0.458** | 0.19 / 0.29 |
+| network 2019-22 minus its own 2023 bias (oracle) | 0.511 | 0 | 0.579 | 0.482 | |
+| network 2019-21 + MSE corrector on 2022 | 0.517 | +0.07 | 0.546 | 0.480 | |
+| **network 2019-21 + diffusion on 2022 (ensemble mean)** | **0.502** | +0.09 | **0.522** | 0.466 | |
+
+- Adding 2022 to training takes about 70% of the grid gain (0.648 -> 0.544 of the 0.648 -> 0.502) and about half of
+  the ISD gain. Each 2019-22 seed beats each 2019-21 seed by 0.09-0.10 m/s on the grid.
+- The two-stage set-up is better than retraining, and better than the retrained network with its 2023 bias removed by
+  an oracle (grid 0.502 vs 0.511, ISD 0.522 vs 0.579). Learning from out-of-sample errors corrects where and when the
+  network is wrong, not only the level.
+- Mesonet (Oklahoma, no drift) is best with the 2019-22 network (0.458); the correctors cost 0.01-0.02 there.
+- A corrector on top of the 2019-22 network has no out-of-sample year left (2023 is the test). For a 2024 product the
+  same recipe applies one year later: network on 2019-22, corrector on 2023.
+- Maps: `outputs/wind/maps/{inference,testyear}_w10o0_LO4y_s1337*`.
 
 ## 7e. Ablation, architecture, target, drift and seed uncertainty (eval 1137883, 15 Nov 13:27-13:41)
 
@@ -700,12 +721,11 @@ Reading:
 Done 15 Nov: eval 1137883 read (7e), maps for the ablation, architecture and target runs, three-band calibration
 (7d), results copied to this repository (`outputs/wind/`, PNGs not tracked).
 
-1. Job 1145932 (two-stage control, 7d): when it finishes, `cat outputs/wind/two_stage.md` and the new seed-mean rows
-   of `outputs/wind/obs_eval.md`; copy both and `maps/*w10o0_LO4y*` to the Mac and log the answer.
+1. Done 15 Nov: two-stage control (job 1145932, 7d). The 2022 corrector beats retraining on 2019-22.
 2. Eval 1139937 (1 km): `cat outputs/wind/wind_summary.md` for the w1 row and the 5 -> 1 km comparison, then
    `python scripts/wind_inference_maps.py --runs w1_L_s1337 --only ladder testyear` (the ladder sheet picks up w1).
-3. Decide the product for the paper: the calibrated two-stage diffusion ensemble (best) or a simpler deterministic
-   variant (MSE corrector 0.516, or the 2019-22 network if job 1145932 shows it matches).
+3. Decide the product for the paper: the calibrated two-stage diffusion ensemble (best on grid and ISD), the MSE
+   corrector (0.517, deterministic), or the 2019-22 network (0.544, one stage, best at Mesonet).
 4. Write the wind section of Paper 1 in the structure of the temperature section: architecture, inputs, target, error
    budget and offset, resolution ladder with LORO, stations on two networks, uncertainty, drift. AMS/JAMC style, plain
    language, no code or repository references in the text, no em dashes. Figures in the shared style
