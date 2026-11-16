@@ -104,7 +104,7 @@ the deterministic fields. Placing it would need information POWER and the statio
 |---|---|
 | `inference_<run>_<day>.png`, `testyear_<run>.png` | each no-station run: POWER, AORC, model, correction made vs needed, station circles; 2023 bias and RMSE |
 | `inputs_<store>_<chan>_<day>.png` | every input channel on a day |
-| `ladder_<day>.png` | 25, 10, 5 and 1 km on the same day (the 1 km rows: job 1147372) |
+| `ladder_<day>.png` | 25, 10, 5 and 1 km on the same day; at 1 km AORC gains ridge-scale detail the model draws only smoothed, and the error is the same broad holdout offset at every rung (`testyear_w1_L_s1337.png`: job 1147372, queued) |
 | `loro_<day>.png` | west, coast and north holdouts |
 | `diffusion_obsvalcal3_<day>.png`, `diffusion_obsvalcal3_testyear.png` | product members, spread, rank histograms |
 | `inference_w10o0_*`, `testyear_w10o0_*` | fusion runs, including `w10o0_LO4y_s1337` (trained 2019-22) |
