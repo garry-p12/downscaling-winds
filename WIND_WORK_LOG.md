@@ -243,7 +243,8 @@ Decision: stop at 30 stations. `outputs/wind/mesonet_daily.csv` is the 30-statio
 | 1139934-36 | train ladder1, 3 shards | COMPLETED 15 Nov 01:38-01:50, about 2 h 56 min each |
 | 1139937 | eval ladder1 (8 h) | never started: PENDING (Priority) for 33 h after it became eligible; held, then CANCELLED 16 Nov once 1146952 had done the work |
 | 1146952 | eval ladder1 on gh-dev, 2 h (`sbatch -p gh-dev -t 02:00:00 --export=ALL,WGROUPS=ladder1 slurm/vista_wind_eval.sh`) | COMPLETED 16 Nov 14:01-14:14, 13 min (about 3.5 min per run). Results in 7 (1 km rung) |
-| 1147372 | 1 km ladder and test-year maps (`slurm/vista_wind_maps.sh`, gh-dev 30 min; the login node runs out of memory on the 1 km store) | submitted 16 Nov |
+| 1147372 | 1 km ladder and test-year maps (`slurm/vista_wind_maps.sh`, gh-dev 30 min; the login node runs out of memory on the 1 km store) | TIMEOUT 30 min: ladder sheets written, the test-year sheet predicted 365 1 km days on CPU (no field cache for w1) |
+| 1147536 | 1 km test-year sheet only, on GPU (`--export=ALL,DOWNSCALE_DEVICE=cuda,MAPARGS="--runs w1_L_s1337 --only testyear"`, 1 h) | submitted 16 Nov |
 
 Trained: all 85 runs (15 Nov).
 
