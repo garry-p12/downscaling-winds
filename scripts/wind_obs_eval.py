@@ -1,4 +1,4 @@
-"""Score the station-fusion wind runs (plan group "obs") against the no-station models, test year 2023.
+"""Score the station-fusion wind runs (plan groups "obs" and "obs4") against the no-station models, test year 2023.
 
 Each fusion run was trained on the fold-0 store and is scored on BOTH fold stores: in store f the holdout stations
 of fold f are inputs, so stations are scored only at the other fold (never inputs). Oklahoma Mesonet is never an
@@ -147,13 +147,22 @@ def main():
         for F in folds:
             res["per_fold"][F.f][run] = F.score(A + F.clim, A)
         log(f"  {run} scored")
+    seedsum = {}                                                  # seed means of the DeepSD LO fusion runs
     for r in wind_plan.plan():
-        if r["group"] != "obs" or not (REPO / "checkpoints" / r["name"] / "last.pt").exists():
+        if r["group"] not in ("obs", "obs4") or not (REPO / "checkpoints" / r["name"] / "last.pt").exists():
             continue
+        key = f"w10o0_LO{'4y' if r['group'] == 'obs4' else ''}_mean" if r["chan"] == "LO" and r["arch"] == "deepsd" \
+            else None
         for F in folds:
             A = wim.predict(F.st, r["name"], F.te)
             res["per_fold"][F.f][r["name"]] = F.score(A + F.clim, A)
+            if key:
+                n, S = seedsum.get((key, F.f), (0, 0))
+                seedsum[(key, F.f)] = (n + 1, S + A)
         log(f"  {r['name']} scored")
+    for (key, f), (n, S) in seedsum.items():
+        A = S / n
+        res["per_fold"][f][f"{key}{n}"] = folds[f].score(A + folds[f].clim, A)
     names = list(res["per_fold"][0])
     res["mean"] = {n: mean_folds(res["per_fold"][0][n], res["per_fold"][1][n]) for n in names}
     (OUT / "obs_eval.json").write_text(json.dumps(res, indent=1, default=float))

@@ -103,6 +103,10 @@ def plan():
         R.append(run("obs", "w10o0", "deepsd", "LO", s))
     R.append(run("obs", "w10o0", "deepsd", "A8O", 1337))
     R.append(run("obs", "w10o0", "unet", "LO", 1337))
+    # E7b two-stage control (WIND_WORK_LOG 7d): the same LO fusion network trained on 2019-22 instead of 2019-21.
+    # Must run with DOWNSCALE_TRAIN_SPLITS=train,val (slurm/vista_wind_obs4.sh); the name records it.
+    for s in SEEDS3:
+        R.append(run("obs4", "w10o0", "deepsd", "LO", s, name=f"w10o0_LO4y_s{s}"))
     return R
 
 

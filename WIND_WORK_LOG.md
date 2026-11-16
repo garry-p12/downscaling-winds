@@ -1,6 +1,6 @@
 # Wind downscaling: work log and handoff
 
-Status as of 14 November 2026 (fusion results, stacking and drift in section 7d). This file records everything done and submitted for the wind downscaling work, so it can be
+Status as of 15 November 2026 (ablation, architecture, target and drift in 7e; station fusion, diffusion and its calibration in 7d). This file records everything done and submitted for the wind downscaling work, so it can be
 moved into its own repository and continued from there. `WIND_PLAN.md` holds the experiment design; this file holds the
 methods as implemented, every job submitted, what went wrong, what has been learned so far, and what remains.
 
@@ -87,6 +87,10 @@ Older wind files from before this program (still in the repo): `configs/data_sc_
 
 This makes the downscaled field `coarse_tmp` when POWER parameters are given as a list. The edit is idempotent. It exists on
 Vista; check whether the Mac copy has it before committing anything to the new repo.
+
+Second change (15 Nov, Vista only, opt-in, backups `*.pre-trainsplits-bak`): `training/dataset.py` accepts a comma list
+of splits (`np.isin` instead of `==`), and `training/train.py` reads the training split from `DOWNSCALE_TRAIN_SPLITS`
+(default `train`, so nothing else changes). Used only by the two-stage control (`slurm/vista_wind_obs4.sh`).
 
 ---
 
@@ -214,7 +218,7 @@ A0, A4 and A8 models. Runs at the start of the ablation eval; writes `outputs/wi
 | 1137878 | train ladder | data | COMPLETED, 0 failed |
 | 1137879 | train loro | data | COMPLETED, 0 failed |
 | 1137880-82 | train ladder1 | km1 | CANCELLED (dependency never satisfied) |
-| 1137883 | eval ablation, arch, target (5 h) | all training, meso | PENDING at time of writing |
+| 1137883 | eval ablation, arch, target (5 h) | all training, meso | COMPLETED 15 Nov 13:41, 14 min (results in 7e) |
 | 1137884 | eval ladder, loro (3 h) | all training, meso | COMPLETED 13 Nov, 6.5 min, 30 Mesonet stations |
 | 1137885 | eval ladder1 | ladder1 training | CANCELLED |
 | 1137861, 1137886 | idev GPU checks | | abandoned in the queue; the GPU stack was confirmed by the training jobs instead |
@@ -236,10 +240,10 @@ Decision: stop at 30 stations. `outputs/wind/mesonet_daily.csv` is the 30-statio
 | 1139010 | km1 build | FAILED, out of memory at 236 GB: the fixed config had not reached Vista |
 | 1139011-13, 1139014 | ladder1 training and eval | CANCELLED |
 | 1139933 | km1 build (4 POWER parameters) | COMPLETED, 57 min, peak 167 GB of 237 |
-| 1139934-36 | train ladder1, 3 shards | PENDING at time of writing |
-| 1139937 | eval ladder1 (8 h) | PENDING, waits for 1139934-36 |
+| 1139934-36 | train ladder1, 3 shards | COMPLETED 15 Nov 01:38-01:50, about 2 h 56 min each |
+| 1139937 | eval ladder1 (8 h) | PENDING (Priority) as of 15 Nov 19:00 |
 
-Trained so far: 82 of 85 runs (all except the three 1 km seeds).
+Trained: all 85 runs (15 Nov).
 
 Checked 13 Nov, about 12:40: 1137883 (eval ablation, arch, target) still PENDING (Priority); 1139934-36 PENDING
 (Priority); 1139937 PENDING (Dependency). Nothing failed.
@@ -265,7 +269,7 @@ Checked 13 Nov, about 12:40: 1137883 (eval ablation, arch, target) still PENDING
 
 ---
 
-## 7. Results so far (ladder and LORO eval, 13 Nov; ablation, architecture and target still pending)
+## 7. Results so far (ladder and LORO eval, 13 Nov; ablation, architecture and target in 7e)
 
 Summary rows (columns: seeds, grid RMSE, grid RMSE after offset correction, ISD RMSE, ISD after correction, Mesonet
 RMSE, coherence resolution in km, SSIM, KL):
@@ -419,7 +423,8 @@ residual diffusion on top for texture (B). The product becomes POWER + stations.
 | 1142302 | wind-diff: residual diffusion, afterok 1142301 | gh-dev, 2 h (COMPLETED 4.5 min) |
 | 1143913 | wind-diff on 2022 residuals, 600 epochs, tag obsval | gh-dev, 45 min (COMPLETED 8 min) |
 | 1143995 | control: same net and 2022 residuals, MSE, no diffusion (`--deterministic --members 1`, tag obsvaldet) | gh-dev, 30 min (COMPLETED 6 min) |
-| 1144798 | spread calibration: cross-fit diffusion on odd/even months of 2022, fit alpha, score obsvalcal | gh-dev, 50 min |
+| 1144798 | spread calibration: cross-fit diffusion on odd/even months of 2022, fit alpha, score obsvalcal | gh-dev, 50 min (COMPLETED 8 min) |
+| 1145932 | wind-obs4: LO fusion on 2019-22 (3 seeds), obs eval, two-stage comparison, maps | gh-dev, 2 h |
 
 ### References and the non-ML bar (13 Nov, login node, before the fusion runs)
 
@@ -585,16 +590,122 @@ Decomposition of the ensemble-mean gain (`scripts/wind_diffusion_decomp.py`, fol
   deviation) by CRPS on those out-of-fold holdout cells, writes tag obsvalcal for 2023 and scores it
   (`outputs/wind/diffusion/obsval_calib.json`, `obsvalcal_score.json`).
 
+### Spread calibration results (14-15 Nov)
+
+Job 1144798 (COMPLETED, 8 min) trained the two cross-fit models; the factors were then fitted on the login node. Every
+factor is fitted on out-of-fold 2022 holdout cells only; 2023 is scored once. Mean of the two fold stores, 2023.
+
+| | factors (fitted on 2022) | grid CRPS | spread/skill | ISD CRPS | ISD cover80 | Meso CRPS | Meso cover80 | member sd ratio < 100 / 100-300 / > 300 km |
+|---|---|---|---|---|---|---|---|---|
+| raw (obsval) | 1 | 0.289 | 0.59 | 0.411 | 0.38 | 0.343 | 0.52 | 0.84 / 0.83 / 0.98 |
+| one factor (obsvalcal) | 2.05 | 0.273 | 1.20 | 0.368 | 0.67 | 0.325 | 0.84 | **1.33** / 1.20 / 1.00 |
+| two bands, split at 100 km (obsvalcal2) | > 100 km x2.4, < 100 km x1.17 | 0.273 | 1.20 | 0.368 | 0.67 | 0.324 | 0.82 | 1.02 / **1.23** / 1.01 |
+| **three bands (obsvalcal3)** | > 300 km x3.5, 100-300 km x1.18, < 100 km x1.35 | **0.273** | 1.21 | **0.367** | **0.69** | **0.324** | 0.81 | **0.99 / 1.07 / 1.03** |
+
+- One factor fixes the spread but makes the fine texture a third too strong. What is missing is large-scale
+  uncertainty, so the deviation of each member from the ensemble mean is split by scale (Gaussian filters with the same
+  sigma as the < 100 km and > 300 km bands of the score) and each part gets its own factor.
+- Three bands (`wind_diffusion_calib.py --mode band3`): a_hi and a_mid make each band's member sd match AORC's on 2022
+  (solved from the band-filtered components, which are linear in the factors), a_lo by CRPS on 2022, alternated four
+  times. On 2022: spread/skill 1.00, cover80 0.77, band sd 1.00 / 1.00 / 0.91. CRPS is the same as with one factor
+  (0.3090 on 2022), so the texture fix is free.
+- 2023 is slightly over-dispersed (1.21; 2022 out-of-fold was 1.00). The half-year cross-fit models are a little worse
+  than the full-year model, so their errors, and the fitted factors, come out a little large.
+- ISD coverage stays at 0.69 against 0.80: airports read windier than their 10 km cell (the rank histogram is lopsided
+  upward). That is a representativeness gap a gridded ensemble should not absorb.
+- Maps: `outputs/wind/maps/diffusion_obsvalcal3_{2023-02-10,2023-04-22,2023-11-16,testyear}.png`.
+
+**Product (as of 15 Nov):** the LO station-fusion network trained on 2019-21, a residual diffusion model trained on its
+2022 errors, and the three-band spread calibration. On the 2023 holdout: grid RMSE 0.773 (no-station model) -> 0.502
+(ensemble mean); withheld ISD MAE 0.67 (POWER) / 0.71 (base network) -> 0.52; a 25-member ensemble with grid CRPS 0.27
+and member texture at the right amplitude in all three bands. Below 100 km the texture is realistic in amplitude but
+its placement is random (member r2 < 100 km about 0.07).
+
+### Two-stage control: the fusion network trained on 2019-22 (job 1145932, submitted 15 Nov)
+
+Question: is the corrector's gain just "train on the most recent year"? Plan group `obs4` retrains the LO network
+(DeepSD, 3 seeds, names `w10o0_LO4y_s*`) on 2019-22 via an opt-in `DOWNSCALE_TRAIN_SPLITS=train,val` (shared code
+change, see below). `scripts/wind_two_stage.py` then compares, on the same footing as the decomposition: network
+2019-21, network 2019-22, its oracle de-biased version, network 2019-21 + MSE corrector, + diffusion
+-> `outputs/wind/two_stage.{md,json}`. `wind_obs_eval.py` now also scores the 3-seed means (`w10o0_LO_mean3`,
+`w10o0_LO4y_mean3`). Job: `slurm/vista_wind_obs4.sh` (gh-dev, 2 h).
+
+## 7e. Ablation, architecture, target, drift and seed uncertainty (eval 1137883, 15 Nov 13:27-13:41)
+
+`outputs/wind/wind_summary.{md,json}`, `drift.json`, `suite_ablation_arch_target.json`. Test year 2023, 10 km holdout.
+ISD columns are all 44 holdout-area stations, raw (no station inputs anywhere in this section).
+
+| Variant | Seeds | Grid | +offset | ISD | +offset | Meso | Grid bias | Offset share of MSE | amp. < 60 km |
+|---|---|---|---|---|---|---|---|---|---|
+| POWER | | 1.128 | | | | | +0.84 | | |
+| DeepSD A0 (POWER speed only) | 3 | **0.772** | 0.569 | **0.947** | 0.761 | 0.679 | -0.42 | 0.29 | 0.01 |
+| DeepSD A4 (+ 21 statics) | 3 | 0.783 | 0.568 | 0.969 | 0.767 | 0.668 | | | |
+| DeepSD A8 (all 27) | 5 | 0.833 | 0.572 | 1.020 | 0.775 | 0.657 | -0.47 | 0.37 | 0.53 |
+| DeepSD L (15) | 5 | 0.772 | 0.561 | 0.961 | 0.765 | 0.655 | -0.43 | 0.31 | 0.43 |
+| linear A8 | 3 | 0.774 | 0.569 | **0.941** | 0.759 | 0.671 | -0.44 | 0.27 | 0.09 |
+| swin A8 | 3 | 0.788 | **0.559** | 0.971 | 0.761 | 0.664 | -0.45 | 0.33 | 0.42 |
+| swinir / edsr / unet / restormer / convnext A8 | 3 each | 0.810-0.859 | 0.566-0.691 | 1.004-1.033 | 0.774-0.847 | 0.651-0.661 | | | |
+| DeepSD A8 trained on ERA5-Land (w10e), vs ERA5-Land | 5 | 0.326 | 0.282 | 0.915 | 0.903 | 0.880 | -0.03 | 0.34 | 4.0 |
+
+Paired ISD comparisons (b minus a, 5,000 station bootstraps):
+
+| Comparison | d (m/s) | 95% CI | b worse at |
+|---|---|---|---|
+| A1 ... A6 vs A0 | +0.020 to +0.032 | all exclude 0 | 31-34 / 44 |
+| A7 vs A0 (gust, stability) | +0.062 | +0.047 to +0.077 | 38/44 |
+| A8 vs A0 | +0.073 | +0.054 to +0.092 | 36/44 |
+| dynamic predictors: A8 vs A4 | +0.051 | +0.034 to +0.068 | 36/44 |
+| statics: A4 vs A1 | +0.002 | -0.006 to +0.010 | 23/44 |
+| A0 vs POWER | -0.206 | -0.412 to -0.010 | 18/44 |
+| linear vs DeepSD (A8) | -0.079 | -0.097 to -0.061 | 7/44 |
+| swin vs DeepSD | -0.049 | -0.061 to -0.038 | 3/44 |
+| swinir vs DeepSD | -0.015 | -0.022 to -0.009 | 8/44 |
+| unet, edsr, convnext, restormer vs DeepSD | -0.015 to +0.013 | all include 0 | |
+| ERA5-trained vs AORC-trained (stations) | -0.105 | -0.238 to +0.026 | 17/44 |
+
+Architecture-to-seed noise ratio 1.65 (sd of architecture means 0.022 m/s, pooled seed sd 0.013).
+
+Reading:
+
+1. **Q2, inputs: less is better.** The 4-channel A0 (POWER speed only) is the best DeepSD on the grid and at
+   stations. Every addition makes the stations worse, significantly; the dynamic predictors (direction, shear, gust,
+   stability) hurt most, and statics are neutral (A4 vs A1 +0.002). After the same-day offset correction all sets tie
+   (0.562-0.575 grid), so the harm is in the level: richer inputs fit the 2019-21 level more closely and carry a larger
+   share of the 2023 drift (offset share of MSE 0.29 for A0, 0.37 for A8; grid bias -0.42 vs -0.47).
+2. **Q1, architecture: capacity does not help.** The linear model is the best at stations and ties A0 on the grid,
+   with almost no fine texture (amplitude < 60 km 0.09 of AORC vs 0.53 for DeepSD). The differences between
+   architectures are only 1.65 times the seed noise. Swin is the best after offset correction (0.559). Restormer and
+   U-Net carry the largest offsets (0.69, 0.62 after correction). Consistent with 7c: what the bigger models learn is
+   texture they cannot place, which costs RMSE.
+3. **Q3, target.** The ERA5-Land-trained model is not distinguishable from the AORC-trained one at stations (-0.105,
+   CI crosses 0; 17/44 worse). ERA5-Land is smooth (coherence resolution 102 km; the model has 4 times its amplitude
+   below 60 km), so its 0.33 grid RMSE is against an easy target. Cross-scores: the ERA5-Land-trained A8 scored
+   against AORC has grid RMSE 0.778, better than the AORC-trained A8 (0.833) against its own target; the AORC-trained
+   A8 scored against ERA5-Land has 0.989. Part of that is the 2023 AORC level drift (point 4), which the ERA5-trained
+   model does not inherit.
+4. **Q7, drift (`drift.json`).** Holdout POWER - AORC: +1.62 (2019), +1.34, +0.86, +0.77 (2022), +0.84 (2023); the
+   training region drifts half as much (+0.83 -> +0.48). Model bias follows: A0 +0.31 (2019, a training year), +0.02,
+   -0.40, -0.54 (2022), -0.42 (2023). A model trained on 2019-21 learns an average POWER-to-AORC offset that is too
+   big for the later years. Together with `bias_years.md` (AORC windier relative to ISD over time, POWER calmer), this
+   is why the most-recent-year corrector of 7d pays.
+5. **Q9, seed ensemble.** Five seeds have a station spread of 0.07-0.16 m/s against a station MAE of about 0.8;
+   reaching 90% coverage (0.89-0.91 in 2023, calibrated on 2022) needs intervals 3.2-3.9 m/s wide. Station CRPS
+   0.73-0.80. Seed spread is not a usable uncertainty; the calibrated diffusion ensemble (7d) is. Not on the same
+   footing: the diffusion ensemble's ISD CRPS (0.37) is at the withheld fold with station inputs.
+6. Maps: `inference_*` and `testyear_*` for w10_A0/A4/A8, linear, swin, swinir, unet A8 and w10e A8 (s1337). The w10e
+   sheets now name ERA5-Land as the target (`target_name` in `wind_inference_maps.py`; earlier they said AORC).
+
 ## 8. What remains
 
-0. Redraw the maps for the ablation, architecture, target and 1 km runs (section 7b).
-1. Wait for eval 1137883 (ablation, architecture, target, plus drift). Then `cat outputs/wind/wind_summary.md`.
-2. Wait for the 1 km training (1139934-36) and its eval (1139937); add the 1 km rung to the ladder.
-3. Copy results to the Mac:
-   ```bash
-   mkdir -p ~/downscaling-temperature/outputs/wind
-   scp -r "vista2:/work/11755/gurup12/vista/downscaling/outputs/wind/*" ~/downscaling-temperature/outputs/wind/
-   ```
+Done 15 Nov: eval 1137883 read (7e), maps for the ablation, architecture and target runs, three-band calibration
+(7d), results copied to this repository (`outputs/wind/`, PNGs not tracked).
+
+1. Job 1145932 (two-stage control, 7d): when it finishes, `cat outputs/wind/two_stage.md` and the new seed-mean rows
+   of `outputs/wind/obs_eval.md`; copy both and `maps/*w10o0_LO4y*` to the Mac and log the answer.
+2. Eval 1139937 (1 km): `cat outputs/wind/wind_summary.md` for the w1 row and the 5 -> 1 km comparison, then
+   `python scripts/wind_inference_maps.py --runs w1_L_s1337 --only ladder testyear` (the ladder sheet picks up w1).
+3. Decide the product for the paper: the calibrated two-stage diffusion ensemble (best) or a simpler deterministic
+   variant (MSE corrector 0.516, or the 2019-22 network if job 1145932 shows it matches).
 4. Write the wind section of Paper 1 in the structure of the temperature section: architecture, inputs, target, error
    budget and offset, resolution ladder with LORO, stations on two networks, uncertainty, drift. AMS/JAMC style, plain
    language, no code or repository references in the text, no em dashes. Figures in the shared style

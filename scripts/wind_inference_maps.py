@@ -85,6 +85,11 @@ def log(*a):
 _STORES: dict[str, Store] = {}
 
 
+def target_name(tag: str) -> str:
+    """Name of the store's training target: w10e stores hold ERA5-Land, every other store AORC."""
+    return "ERA5-Land" if tag.startswith("w10e") else "AORC"
+
+
 def store_for(tag: str) -> Store:
     if tag not in _STORES:
         cfg, zarr = wind_plan.STORES[tag][:2]
@@ -332,6 +337,7 @@ def sheet_inference(run: str, day: str, label: str):
     plt = setup(); C = cmaps()
     from matplotlib.colors import TwoSlopeNorm
     r = PLAN[run]; st = store_for(r["store"]); k = day_index(st, day)
+    TN = target_name(r["store"])
     T = truth_abs(st, k)
     P = input_abs(st, k, "coarse_tmp")
     M = predict(st, run, np.array([k]))[0] + st.clim[st.doy[k]]
@@ -350,16 +356,16 @@ def sheet_inference(run: str, day: str, label: str):
     fig, ax = plt.subplots(2, 4, figsize=(20, 9.8))
     panel(fig, ax[0, 0], st, P, "POWER, interpolated (input)", C["speed"],
           f"holdout RMSE {rp:.2f}, bias {bias(P, T, m):+.2f} m/s", stn=stn, vmin=vmin, vmax=vmax)
-    panel(fig, ax[0, 1], st, T, "AORC (target)", C["speed"], f"holdout mean {np.nanmean(T[m]):.2f} m/s",
+    panel(fig, ax[0, 1], st, T, f"{TN} (target)", C["speed"], f"holdout mean {np.nanmean(T[m]):.2f} m/s",
           stn=stn, vmin=vmin, vmax=vmax)
     panel(fig, ax[0, 2], st, M, "Model output (downscaled)", C["speed"],
           f"holdout RMSE {rm:.2f}, bias {bias(M, T, m):+.2f} m/s", stn=stn, vmin=vmin, vmax=vmax)
     cm = M - P; clim_ = float(np.nanpercentile(np.abs(cm[st.land]), 99)) or 1.0
     panel(fig, ax[0, 3], st, cm, "Correction made (model - POWER)", C["div"], "what the network added to its input",
           norm=TwoSlopeNorm(0, -clim_, clim_))
-    panel(fig, ax[1, 0], st, e_p, "POWER error (POWER - AORC)", C["div"], "same scale as the panel to the right",
+    panel(fig, ax[1, 0], st, e_p, f"POWER error (POWER - {TN})", C["div"], "same scale as the panel to the right",
           norm=TwoSlopeNorm(0, -elim, elim))
-    panel(fig, ax[1, 1], st, e_m, "Model error (model - AORC)", C["div"], "shrinkage against the left panel is skill",
+    panel(fig, ax[1, 1], st, e_m, f"Model error (model - {TN})", C["div"], "shrinkage against the left panel is skill",
           norm=TwoSlopeNorm(0, -elim, elim))
 
     sc = ax[1, 2]
@@ -373,7 +379,7 @@ def sheet_inference(run: str, day: str, label: str):
     sc.plot([-lim, lim], [-lim * slope, lim * slope], color=ORANGE, lw=1.6, label=f"fit, slope {slope:.2f}")
     sc.axhline(0, color=GRAT, lw=.6); sc.axvline(0, color=GRAT, lw=.6)
     sc.set_xlim(-lim, lim); sc.set_ylim(-lim, lim); sc.set_aspect("equal")
-    sc.set_xlabel("correction needed (AORC - POWER), m/s", fontsize=8.5, color=INK2)
+    sc.set_xlabel(f"correction needed ({TN} - POWER), m/s", fontsize=8.5, color=INK2)
     sc.set_ylabel("correction made (model - POWER), m/s", fontsize=8.5, color=INK2)
     sc.set_title(f"Holdout cells, r = {rc:.2f}", fontsize=10.5, fontweight="bold", pad=9)
     sc.legend(fontsize=7.5, loc="upper left", framealpha=.9); sc.tick_params(labelsize=7.5, labelcolor=INK3)
@@ -398,7 +404,7 @@ def sheet_inference(run: str, day: str, label: str):
                  f"Daily mean 10 m wind speed. Metrics use the land cells inside the orange held-out region, which the "
                  f"model never trained on. Circles: ISD stations, squares: Oklahoma Mesonet, coloured with the observed "
                  f"daily mean on the same scale as the map (a dot that disappears into the map is a match). ISD RMSE "
-                 f"counts only stations inside the holdout. Grey: no AORC data or water.", chars=230)
+                 f"counts only stations inside the holdout. Grey: no {TN} data or water.", chars=230)
     fig.tight_layout(rect=(0, 0, 1, top))
     save(fig, f"inference_{run}_{day}.png")
 
@@ -407,6 +413,7 @@ def sheet_testyear(run: str):
     plt = setup(); C = cmaps()
     from matplotlib.colors import TwoSlopeNorm
     r = PLAN[run]; st = store_for(r["store"]); te = st.i_test
+    TN = target_name(r["store"])
     T = np.asarray(st._zarr["target"][te[0]:te[-1] + 1, 0], "float32") + st.clim[st.doy[te]]
     P = np.asarray(st._zarr["input"][te[0]:te[-1] + 1, st.stored.index("coarse_tmp")], "float32") \
         + st.clim_coarse[st.doy[te]]
@@ -422,20 +429,20 @@ def sheet_testyear(run: str):
     fig, ax = plt.subplots(2, 4, figsize=(20, 9.8))
     vmax = float(np.nanpercentile(np.r_[Tm[land], Pm[land], Mm[land]], 99.5))
     vmin = float(np.nanpercentile(np.r_[Tm[land], Pm[land], Mm[land]], 0.5))
-    panel(fig, ax[0, 0], st, Tm, "AORC, 2023 mean", C["speed"], f"holdout {np.nanmean(Tm[m]):.2f} m/s", vmin=vmin, vmax=vmax)
+    panel(fig, ax[0, 0], st, Tm, f"{TN}, 2023 mean", C["speed"], f"holdout {np.nanmean(Tm[m]):.2f} m/s", vmin=vmin, vmax=vmax)
     panel(fig, ax[0, 1], st, Pm, "POWER interpolated, 2023 mean", C["speed"], f"holdout {np.nanmean(Pm[m]):.2f} m/s",
           vmin=vmin, vmax=vmax)
     panel(fig, ax[0, 2], st, Mm, "Model, 2023 mean", C["speed"], f"holdout {np.nanmean(Mm[m]):.2f} m/s", vmin=vmin, vmax=vmax)
     bP, bM = Pm - Tm, Mm - Tm
     bl = float(np.nanpercentile(np.abs(np.r_[bP[land], bM[land]]), 99)) or 1.0
-    panel(fig, ax[0, 3], st, bP, "POWER bias (2023 mean - AORC)", C["div"],
+    panel(fig, ax[0, 3], st, bP, f"POWER bias (2023 mean - {TN})", C["div"],
           f"holdout {np.nanmean(bP[m]):+.2f} m/s", norm=TwoSlopeNorm(0, -bl, bl))
-    panel(fig, ax[1, 0], st, bM, "Model bias (2023 mean - AORC)", C["div"],
+    panel(fig, ax[1, 0], st, bM, f"Model bias (2023 mean - {TN})", C["div"],
           f"holdout {np.nanmean(bM[m]):+.2f} m/s; same scale as POWER bias", norm=TwoSlopeNorm(0, -bl, bl))
     rv = float(np.nanpercentile(np.r_[rP[land], rM[land]], 99))
-    panel(fig, ax[1, 1], st, rP, "POWER RMSE vs AORC, 2023", C["seq"],
+    panel(fig, ax[1, 1], st, rP, f"POWER RMSE vs {TN}, 2023", C["seq"],
           f"holdout {np.sqrt(np.nanmean(rP[m] ** 2)):.2f} m/s", vmin=0, vmax=rv)
-    panel(fig, ax[1, 2], st, rM, "Model RMSE vs AORC, 2023", C["seq"],
+    panel(fig, ax[1, 2], st, rM, f"Model RMSE vs {TN}, 2023", C["seq"],
           f"holdout {np.sqrt(np.nanmean(rM[m] ** 2)):.2f} m/s", vmin=0, vmax=rv)
     d = rM - rP; dl = float(np.nanpercentile(np.abs(d[land]), 99)) or 1.0
     panel(fig, ax[1, 3], st, d, "RMSE change (model - POWER)", C["div"],
@@ -443,7 +450,7 @@ def sheet_testyear(run: str):
           norm=TwoSlopeNorm(0, -dl, dl))
     ttl = f"{run}: test year 2023, {wind_plan.CHANNELS[r['chan']][0]}, {r['arch']}, {wind_plan.STORES[r['store']][3]} km"
     top = header(fig, ttl,
-                 "Per-cell statistics over all 365 days of 2023 against AORC. Outside the orange box the model saw these "
+                 f"Per-cell statistics over all 365 days of 2023 against {TN}. Outside the orange box the model saw these "
                  "cells in training (other years), so only the box is out-of-sample in space. Holdout RMSE is the "
                  "root of the mean squared error over all holdout cells and days.", chars=230)
     fig.tight_layout(rect=(0, 0, 1, top))
