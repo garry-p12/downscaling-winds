@@ -241,8 +241,9 @@ Decision: stop at 30 stations. `outputs/wind/mesonet_daily.csv` is the 30-statio
 | 1139011-13, 1139014 | ladder1 training and eval | CANCELLED |
 | 1139933 | km1 build (4 POWER parameters) | COMPLETED, 57 min, peak 167 GB of 237 |
 | 1139934-36 | train ladder1, 3 shards | COMPLETED 15 Nov 01:38-01:50, about 2 h 56 min each |
-| 1139937 | eval ladder1 (8 h) | still PENDING (Priority) 16 Nov 11:20, 33 h after it became eligible; HELD (`scontrol hold`) so it cannot run alongside 1146952. `scontrol release 1139937` if the dev route fails, `scancel` once the 1 km eval is complete |
-| 1146952 | eval ladder1 on gh-dev, 2 h (`sbatch -p gh-dev -t 02:00:00 --export=ALL,WGROUPS=ladder1 slurm/vista_wind_eval.sh`); the suite resumes per run, so resubmit if cut off | submitted 16 Nov 11:23 |
+| 1139937 | eval ladder1 (8 h) | never started: PENDING (Priority) for 33 h after it became eligible; held, then CANCELLED 16 Nov once 1146952 had done the work |
+| 1146952 | eval ladder1 on gh-dev, 2 h (`sbatch -p gh-dev -t 02:00:00 --export=ALL,WGROUPS=ladder1 slurm/vista_wind_eval.sh`) | COMPLETED 16 Nov 14:01-14:14, 13 min (about 3.5 min per run). Results in 7 (1 km rung) |
+| 1147372 | 1 km ladder and test-year maps (`slurm/vista_wind_maps.sh`, gh-dev 30 min; the login node runs out of memory on the 1 km store) | submitted 16 Nov |
 
 Trained: all 85 runs (15 Nov).
 
@@ -317,6 +318,27 @@ Reading so far (preliminary):
 4. LORO agrees: no reliable 10 -> 5 km gain in any region (north after offset correction is a weak exception).
 
 ---
+
+### 1 km rung (eval 1146952, 16 Nov)
+
+| Rung (DeepSD L) | Seeds | Grid | +offset | ISD | +offset | Meso | Coh. res. km | SSIM | amp. < 60 km | coh. < 60 km |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 25 km | 5 | 0.763 | 0.558 | 0.971 | 0.803 | 0.668 | 145.9 | 0.635 | 0.47 | 0.10 |
+| 10 km | 5 | 0.772 | 0.561 | 0.961 | 0.765 | 0.655 | 207.5 | 0.665 | 0.43 | 0.27 |
+| 5 km | 5 | 0.761 | 0.567 | 0.941 | 0.742 | 0.641 | 204.0 | 0.729 | 0.48 | 0.28 |
+| **1 km** | 3 | 0.778 | 0.582 | 0.931 | 0.729 | 0.646 | 215.8 | 0.847 | 0.32 | 0.08 |
+
+| Comparison (ISD, b minus a) | d | 95% CI | b worse at |
+|---|---|---|---|
+| ladder 5 -> 1 km | -0.010 | -0.032 to +0.009 | 24/45 |
+| ladder 5 -> 1 km, offset-corrected | -0.014 | -0.033 to +0.004 | 21/45 |
+| AORC itself 5 -> 1 km | -0.024 | -0.046 to -0.005 | 22/45 |
+
+Q5 answer: no rung of the ladder pays for the model. Every step (25 -> 10 -> 5 -> 1 km) is within noise at stations,
+while AORC itself improves at each step (-0.069, -0.029, -0.024). At 1 km the model reproduces less of the fine
+structure than at 5 km (amplitude below 60 km 0.32 of AORC's, coherence 0.08), so the higher SSIM (0.85) reflects
+the smoother 1 km field, not placed detail. Grid scores are against each rung's own target and are not comparable
+across rungs; the station rows are. Remember the 19% land-cover gap in the 1 km store.
 
 ## 7b. Inference maps (13 Nov)
 
@@ -723,8 +745,7 @@ Done 15 Nov: eval 1137883 read (7e), maps for the ablation, architecture and tar
 (7d), results copied to this repository (`outputs/wind/`, PNGs not tracked).
 
 1. Done 15 Nov: two-stage control (job 1145932, 7d). The 2022 corrector beats retraining on 2019-22.
-2. Eval 1146952 (1 km, gh-dev; 1139937 held): `cat outputs/wind/wind_summary.md` for the w1 row and the 5 -> 1 km comparison, then
-   `python scripts/wind_inference_maps.py --runs w1_L_s1337 --only ladder testyear` (the ladder sheet picks up w1).
+2. Done 16 Nov: 1 km rung (section 7). Maps: job 1147372; copy `ladder_*.png` and `testyear_w1_L_s1337.png` when it ends.
 3. Decide the product for the paper: the calibrated two-stage diffusion ensemble (best on grid and ISD), the MSE
    corrector (0.517, deterministic), or the 2019-22 network (0.544, one stage, best at Mesonet).
 4. Write the wind section of Paper 1 in the structure of the temperature section: architecture, inputs, target, error
