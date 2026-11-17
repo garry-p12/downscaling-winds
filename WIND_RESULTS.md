@@ -1,17 +1,61 @@
 # Wind downscaling: results
 
-Status 16 November 2026. All experiments are finished. This file collects every result in one place; the full method,
-job ledger and reasoning are in `WIND_WORK_LOG.md` (section numbers given as "log 7d" etc.).
+Status 16 November 2026. All experiments are finished, and the **calibrated diffusion ensemble is the chosen product**.
+This file collects every result in one place. The full method, job ledger and reasoning are in `WIND_WORK_LOG.md`
+(section numbers are given as "log 7d" etc.). Figures are in `outputs/wind/maps/` and are produced by
+`scripts/wind_results_figs.py`.
 
 ## In one paragraph
 
 NASA POWER daily 10 m wind speed (about 50 km) was downscaled to 10 km over the South-Central US against AORC. A
-network that sees only POWER cuts the held-out grid error from 1.13 to 0.77 m/s, but beats interpolated POWER at
-stations only narrowly, and no input, architecture, training target or finer grid changes that. What changed it was
-(1) same-day ISD station observations as inputs, (2) a second-stage corrector trained on the model's errors in the most
-recent year, which also absorbs a drift between POWER and AORC, and (3) a residual diffusion model with a scale-aware
-spread calibration that gives a calibrated 25-member ensemble with realistic texture. The product reaches
-**0.50 m/s grid RMSE** and **0.52 m/s MAE at withheld stations** (POWER 1.13 and 0.96), with grid CRPS 0.27.
+network that sees only POWER cuts the held-out grid error from 1.13 to 0.77 m/s. At stations, though, it beats
+interpolated POWER only narrowly, and no input, architecture, training target or finer grid changes that. Three things
+changed it:
+
+1. Same-day ISD station observations as inputs.
+2. A second-stage corrector trained on the model's errors in the most recent year, which also absorbs a drift between
+   POWER and AORC.
+3. A residual diffusion model with a scale-aware spread calibration, which gives a calibrated 25-member ensemble with
+   realistic texture.
+
+The product reaches **0.50 m/s grid RMSE** and **0.52 m/s MAE at withheld stations** (POWER 1.13 and 0.96), with grid
+CRPS 0.27.
+
+## The product
+
+**Recipe:**
+
+1. The station-fusion network (DeepSD, ladder inputs plus same-day ISD station departures, mean of 3 seeds) is trained
+   on 2019-21.
+2. A residual diffusion model is trained on that network's out-of-sample errors in 2022 and draws 25 members.
+3. Each member's deviation from the ensemble mean is widened by scale band, with factors fitted on 2022 only: x3.5 above
+   300 km, x1.18 at 100-300 km, x1.35 below 100 km.
+4. The deterministic answer is the ensemble mean. The members and their quantiles give the uncertainty.
+
+| 2023, held-out box, mean of both fold stores | Product | POWER | No-station model |
+|---|---|---|---|
+| Grid RMSE vs AORC (ensemble mean) | **0.502** | 1.128 | 0.769 |
+| Grid bias | +0.09 | +0.84 | -0.43 |
+| Withheld ISD MAE | **0.522** | 0.963 | 0.800 |
+| Oklahoma Mesonet MAE | 0.466 | 0.848 | 0.521 |
+| Grid CRPS | **0.273** | | |
+| Spread / skill (1 = calibrated) | 1.21 | | |
+| AORC inside the 80% range | 0.83 (fold store 0) | | |
+| Withheld ISD inside the 80% range | 0.69 | | |
+| Mesonet inside the 80% range | 0.81 | | |
+| Member texture strength < 100 / 100-300 / > 300 km (1 = AORC) | 0.99 / 1.07 / 1.03 | | |
+
+![the product over 2023](outputs/wind/maps/results_product_2023.png)
+
+The figure shows the product's 2023 mean against AORC, its bias and RMSE, its 80% range, how often AORC falls inside
+that range, CRPS, and the gain over POWER cell by cell. The bottom row is the daily mean over the held-out box. AORC
+lies inside the members' 10-90% band on 90% of days, and the daily-mean RMSE is 0.19 m/s against POWER's 0.92.
+
+The product on a windy day: holdout RMSE 0.69 against 1.16 for the base network. The uncertainty is
+`results_uncertainty.png` (section 3). The members' rank histograms and spread are below.
+
+![product members, windy day](outputs/wind/maps/diffusion_obsvalcal3_2023-02-10.png)
+![product calibration over 2023](outputs/wind/maps/diffusion_obsvalcal3_testyear.png)
 
 ## Setup
 
@@ -24,9 +68,9 @@ spread calibration that gives a calibrated 25-member ensemble with realistic tex
 | Stations | ISD airports: 190 in the domain, 42 in the holdout split into two folds of 21. In fold store f, fold f's stations are inputs and the other fold is scored. Oklahoma Mesonet (30 stations, never an input, outside the box: temporally independent only) |
 | Metrics | RMSE and bias against AORC on the grid; station MAE / RMSE; ensemble CRPS, spread/skill, 80% coverage, rank histograms; amplitude and r2 by scale band (< 100, 100-300, > 300 km) |
 
-## 1. The final pipeline, stage by stage (test year 2023, mean of both fold stores)
+## 1. How the product was reached, stage by stage (test year 2023, mean of both fold stores)
 
-`outputs/wind/results_stage_scores.json`; figure `results_findings.png` (a, b).
+`outputs/wind/results_stage_scores.json`; figure panels (a) and (b).
 
 | Stage | Grid RMSE | Grid bias | Withheld ISD MAE | Mesonet MAE |
 |---|---|---|---|---|
@@ -37,17 +81,19 @@ spread calibration that gives a calibrated 25-member ensemble with realistic tex
 | Fusion 2019-21 + MSE corrector trained on 2022 | 0.517 | +0.07 | 0.546 | 0.480 |
 | **Fusion 2019-21 + diffusion corrector on 2022 (product, ensemble mean)** | **0.502** | +0.09 | **0.522** | 0.466 |
 
-Further references (log 7d): AORC itself at withheld ISD has de-biased RMSE 0.31 (the ceiling); kernel interpolation
-of station departures over POWER 0.52 de-biased; no-station model + kernel-spread station residuals ("hybrid") grid
-0.62.
+Further references (log 7d):
 
-![pipeline, stage by stage](outputs/wind/maps/results_findings.png)
+- AORC itself at the withheld ISD stations has a de-biased RMSE of 0.31, which is the ceiling.
+- Kernel interpolation of station departures over POWER reaches 0.52 de-biased.
+- The no-station model plus kernel-spread station residuals (the "hybrid") reaches a grid RMSE of 0.62.
+
+![what moved the error](outputs/wind/maps/results_findings.png)
 
 ### Why two stages (log 7d, two-stage control)
 
 The corrector is trained on the 2019-21 network's out-of-sample errors in 2022. Retraining the network on 2019-22
-instead gets about 70% of the grid gain but less at stations, and the corrector also beats the retrained network after
-an oracle removes that network's 2023 bias:
+instead gets about 70% of the grid gain, but less at stations. The corrector also beats the retrained network even
+after an oracle removes that network's 2023 bias:
 
 | | Grid RMSE | Withheld ISD MAE | Mesonet MAE |
 |---|---|---|---|
@@ -55,59 +101,67 @@ an oracle removes that network's 2023 bias:
 | network 2019-22 minus its own 2023 bias (oracle, not achievable) | 0.511 | 0.579 | 0.482 |
 | network 2019-21 + diffusion corrector on 2022 | **0.502** | **0.522** | 0.466 |
 
-So the corrector learns where and when the network is wrong, not only the level. About 90% of the corrector's gain is
-also obtained by a deterministic network trained with MSE on the same residuals (0.517); diffusion adds 2-5% and the
-ensemble. For a 2024 product the recipe moves one year: network on 2019-22, corrector on 2023.
+So the corrector learns where and when the network is wrong, not only the overall level. A deterministic network
+trained with MSE on the same residuals gets about 90% of the corrector's gain (0.517). Diffusion adds a further 2-5%
+and the ensemble. For a 2024 product the recipe moves one year: network on 2019-22, corrector on 2023.
 
 ## 2. Maps
 
-All maps are in `outputs/wind/maps/` (PNG, not tracked by git; regenerate with the commands at the end). The results
-sheets use fold store 0, so the circles are fold-1 ISD stations withheld from the inputs.
+The results sheets use fold store 0, so the circles are the fold-1 ISD stations withheld from the inputs.
 
 ### One day through the pipeline
 
-Windy (2023-02-10), typical (2023-04-22) and calm (2023-11-16) days: POWER, no-station model, fusion 2019-21, fusion
-2019-22, product ensemble mean, one calibrated member, AORC; row 2 the errors and the product's 80% range.
+Each sheet shows a windy (2023-02-10), typical (2023-04-22) or calm (2023-11-16) day. Row 1 shows POWER, the
+no-station model, fusion 2019-21, fusion 2019-22, the product's ensemble mean, one calibrated member and AORC. Row 2
+shows their errors and the product's 80% range.
 
 ![windy day](outputs/wind/maps/results_pipeline_2023-02-10.png)
 ![typical day](outputs/wind/maps/results_pipeline_2023-04-22.png)
 ![calm day](outputs/wind/maps/results_pipeline_2023-11-16.png)
 
-On the windy day all deterministic stages are 0.6-0.9 m/s too calm over the holdout; the corrector removes most of it
-(holdout RMSE 1.16 -> 0.69). The withheld airports on that day are better matched by POWER than by any model,
-a reminder that a single day at 21 stations is noisy.
+On the windy day every deterministic stage is 0.6-0.9 m/s too calm over the holdout; the corrector removes most of it
+(holdout RMSE 1.16 -> 0.69). On that day POWER matches the withheld airports better than any model does. A single day
+at 21 stations is noisy.
 
 ### The whole test year
 
 ![test year](outputs/wind/maps/results_testyear.png)
 
-The no-station and first fusion models are too calm in round patches 50-80 km across over the holdout (the size of
-the station kernels); the 2019-22 network shrinks them, the product removes them and is slightly windy instead (+0.07
-on fold store 0).
+The no-station and first fusion models are too calm over the holdout, in round patches 50-80 km across (the size of
+the station kernels). The 2019-22 network shrinks the patches. The product removes them and is slightly windy instead
+(+0.07 on fold store 0).
 
 ### Texture
 
 ![texture, windy day](outputs/wind/maps/results_texture_2023-02-10.png)
 ![texture, typical day](outputs/wind/maps/results_texture_2023-04-22.png)
 
-Deterministic stages carry 40-60% of AORC's amplitude below 100 km. Calibrated members match it (about 1.0 from 300 km
-down to 20 km), but their fine structure is not placed: r2 with AORC below 100 km is about 0.07 per member and 0.19 for
-the deterministic fields. Placing it would need information POWER and the stations do not have (log 7c).
+Deterministic stages carry 40-60% of AORC's amplitude below 100 km. The calibrated members match it, at about 1.0 from
+300 km down to 20 km. Their fine structure is not placed, though: r2 with AORC below 100 km is about 0.07 per member,
+against 0.19 for the deterministic fields. Placing it would need information that POWER and the stations do not have
+(log 7c).
 
 ### Uncertainty
 
 ![uncertainty](outputs/wind/maps/results_uncertainty.png)
 
-### Earlier sheets (still valid)
+### Resolution ladder (no-station model, same day at 25, 10, 5 and 1 km)
+
+![ladder, windy day](outputs/wind/maps/ladder_2023-02-10.png)
+
+At 1 km, AORC gains ridge-scale detail that the model draws only in smoothed form. At every rung the error is the same
+broad offset over the holdout. Typical and calm days: `ladder_2023-04-22.png`, `ladder_2023-11-16.png`.
+
+### Other sheets
 
 | Sheet | Shows |
 |---|---|
 | `inference_<run>_<day>.png`, `testyear_<run>.png` | each no-station run: POWER, AORC, model, correction made vs needed, station circles; 2023 bias and RMSE |
 | `inputs_<store>_<chan>_<day>.png` | every input channel on a day |
-| `ladder_<day>.png` | 25, 10, 5 and 1 km on the same day; at 1 km AORC gains ridge-scale detail the model draws only smoothed, and the error is the same broad holdout offset at every rung (`testyear_w1_L_s1337.png`: job 1147372, queued) |
 | `loro_<day>.png` | west, coast and north holdouts |
-| `diffusion_obsvalcal3_<day>.png`, `diffusion_obsvalcal3_testyear.png` | product members, spread, rank histograms |
+| `diffusion_obsvalcal3_<day>.png` | product members, spread and errors on the typical and calm days |
 | `inference_w10o0_*`, `testyear_w10o0_*` | fusion runs, including `w10o0_LO4y_s1337` (trained 2019-22) |
+| `testyear_w1_L_s1337.png` | 1 km 2023 sheet (job 1147536, queued at time of writing) |
 
 ## 3. Calibrated ensemble (log 7d)
 
@@ -240,10 +294,7 @@ Mesonet has no drift problem, so the corrector does not help there (0.466) and t
 - **ISD coverage of the ensemble is 0.69** against the 0.80 target, because airports are windier than their cell.
 - **The product depends on a recent year of AORC** for the corrector, and its benefit assumes next year drifts like the
   last one did.
-- **Decision pending:** which variant the paper reports as the product.
-  - Diffusion ensemble: best on the grid and at ISD, and calibrated.
-  - MSE corrector: deterministic, 0.517.
-  - Network trained on 2019-22: simplest, 0.544, best at Mesonet.
+- **Product decided (16 Nov):** the calibrated diffusion ensemble. Alternatives on record: the MSE corrector (0.517, deterministic) and the network trained on 2019-22 (0.544, best at Mesonet).
 - **1 km store:** it has a 19% land-cover gap.
 
 ## 7. Reproduce
@@ -251,12 +302,13 @@ Mesonet has no drift problem, so the corrector does not help there (0.466) and t
 ```bash
 # on Vista, repo root (login node unless noted)
 python scripts/wind_results_figs.py                    # results_* sheets, results_stage_scores.json (~10 min)
+python scripts/wind_results_figs.py --only product     # results_product_2023.png only
 python scripts/wind_two_stage.py                       # two_stage.md (after the obs4 runs)
 python scripts/wind_diffusion_calib.py --mode band3    # three-band calibration -> obsvalcal3, scores it
 python scripts/wind_diffusion_maps.py --tag obsvalcal3 --control obsvaldet
 sbatch --export=ALL,MAPARGS="--runs w1_L_s1337 --only ladder testyear" slurm/vista_wind_maps.sh   # 1 km sheets
 # on the Mac
-scp "vista2:/work/11755/gurup12/vista/downscaling/outputs/wind/maps/results_*.png" outputs/wind/maps/
+scp "vista2:/work/11755/gurup12/vista/downscaling/outputs/wind/maps/results_*.png" outputs/wind/maps/   # one file per scp if the glob fails
 ```
 
 | Result file | Content |

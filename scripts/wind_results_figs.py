@@ -12,6 +12,8 @@ Sheets (outputs/wind/maps/results_*.png):
                                 and the amplitude spectrum of 2023 relative to AORC
   results_uncertainty.png       spread and spread/error maps, rank histograms raw vs calibrated, band amplitude
   results_findings.png          stage scores (both folds), input ablation, architectures, resolution ladder, drift
+  results_product_2023.png      the product over 2023: mean, bias, RMSE, 80% range, its coverage, CRPS, gain over
+                                POWER, and the daily holdout-mean series with the members' band (--only product)
 
 Fold store 0 for maps (stations of fold 1 are withheld); the stage scores average both fold stores.
 Reads saved samples and cached fields; only the 2019-22 fusion runs are predicted (CPU, a few minutes).
@@ -435,7 +437,86 @@ def sheet_findings(S):
     wim.save(fig, "results_findings.png")
 
 
+def sheet_product(F, X, E):
+    """The product over 2023: mean field vs AORC, per-cell error, 80% range, its coverage and CRPS, and the daily
+    holdout-mean series with the members' 10-90% band."""
+    plt = wim.setup(); C = wim.cmaps()
+    from matplotlib.colors import TwoSlopeNorm
+    st = F.st; m = F.mask; T = F.Tabs; cl = F.clim
+    land = st.land & np.isfinite(T).all(0)
+    Em = X["Product (ens. mean)"]
+    q10 = np.empty_like(Em); q90 = np.empty_like(Em); crps = np.empty_like(Em)
+    nm = E.shape[0]
+    w = (2 * np.arange(1, nm + 1) - nm - 1)[:, None, None].astype("float32")
+    for k in range(E.shape[1]):                              # day by day keeps memory small
+        Xk = np.sort(np.asarray(E[:, k]) + cl[k][None], 0)
+        q10[k], q90[k] = np.percentile(Xk, [10, 90], axis=0)
+        crps[k] = np.mean(np.abs(Xk - T[k][None]), 0) - (w * Xk).sum(0) / (nm * (nm - 1))
+    inside = ((T >= q10) & (T <= q90)).astype("float32"); inside[~np.isfinite(T)] = np.nan
+    fig = plt.figure(figsize=(24, 13.5))
+    gs = fig.add_gridspec(3, 4, height_ratios=[1, 1, .75])
+    ax = [fig.add_subplot(gs[r, c]) for r in range(2) for c in range(4)]
+    Tm, Mm = np.nanmean(T, 0), np.nanmean(Em, 0)
+    vmin, vmax = np.nanpercentile(np.r_[Tm[land], Mm[land]], [0.5, 99.5])
+    wim.panel(fig, ax[0], st, Tm, "AORC, 2023 mean", C["speed"], "", vmin=vmin, vmax=vmax)
+    mapsub(ax[0], "AORC, 2023 mean", f"holdout {np.nanmean(Tm[m]):.2f} m/s")
+    wim.panel(fig, ax[1], st, Mm, "Product (ensemble mean), 2023 mean", C["speed"], "", vmin=vmin, vmax=vmax)
+    mapsub(ax[1], "Product (ensemble mean), 2023 mean", f"holdout {np.nanmean(Mm[m]):.2f} m/s")
+    b = Mm - Tm; bl = float(np.nanpercentile(np.abs(b[land]), 99))
+    wim.panel(fig, ax[2], st, b, "Product bias, 2023", C["div"], "", norm=TwoSlopeNorm(0, -bl, bl))
+    mapsub(ax[2], "Product bias, 2023", f"holdout {np.nanmean(b[m]):+.2f} m/s (POWER +0.84)")
+    r = np.sqrt(np.nanmean((Em - T) ** 2, 0))
+    wim.panel(fig, ax[3], st, r, "Product RMSE, 2023", C["seq"], "", vmin=0, vmax=float(np.nanpercentile(r[land], 99)))
+    mapsub(ax[3], "Product RMSE, 2023", f"holdout {np.sqrt(np.nanmean((Em - T)[:, m] ** 2)):.3f} m/s (POWER 1.128)")
+    wd = np.nanmean(q90 - q10, 0)
+    wim.panel(fig, ax[4], st, wd, "80% range width, 2023 mean", C["seq"], "", vmin=0,
+              vmax=float(np.nanpercentile(wd[land], 99)))
+    mapsub(ax[4], "80% range width (q90 - q10)", f"holdout {np.nanmean(wd[m]):.2f} m/s")
+    cv = np.nanmean(inside, 0)
+    wim.panel(fig, ax[5], st, cv, "AORC inside the 80% range", C["div"], "", unit="fraction of days",
+              norm=TwoSlopeNorm(.8, .5, 1.0))
+    mapsub(ax[5], "AORC inside the 80% range", f"holdout {np.nanmean(inside[:, m]):.0%} of cell-days (target 80%)")
+    cr = np.nanmean(crps, 0)
+    wim.panel(fig, ax[6], st, cr, "CRPS, 2023", C["seq"], "", vmin=0, vmax=float(np.nanpercentile(cr[land], 99)))
+    mapsub(ax[6], "CRPS, 2023 (lower is better)", f"holdout {np.nanmean(crps[:, m]):.3f} m/s (ens. mean MAE "
+           f"{np.nanmean(np.abs(Em - T)[:, m]):.3f})")
+    P = X["POWER"]
+    wim.panel(fig, ax[7], st, np.sqrt(np.nanmean((P - T) ** 2, 0)) - r, "RMSE gain over POWER", C["div"], "",
+              norm=TwoSlopeNorm(0, -1.2, 1.2))
+    mapsub(ax[7], "RMSE gain over POWER (POWER - product)", "red = product better")
+    # daily holdout-mean series
+    a = fig.add_subplot(gs[2, :])
+    days = pd.DatetimeIndex(st.times[F.te])
+    hm = lambda A: np.nanmean(A[:, m], 1)                                              # noqa: E731
+    mem = np.stack([np.nanmean((np.asarray(E[i]) + cl)[:, m], 1) for i in range(nm)])
+    lo, hi = np.percentile(mem, [10, 90], axis=0)
+    a.fill_between(days, lo, hi, color=C1, alpha=.22, lw=0, label="product, members 10-90%")
+    a.plot(days, hm(P), color=GREY, lw=1, label="POWER")
+    a.plot(days, hm(T), color=INK, lw=1.4, label="AORC")
+    a.plot(days, hm(Em), color=C1, lw=1.4, label="product, ensemble mean")
+    a.set_ylabel("holdout mean speed (m/s)", fontsize=8.5, color=INK2)
+    a.set_xlim(days[0], days[-1]); style(a, "y")
+    a.legend(fontsize=8, frameon=False, ncol=4, loc="upper right")
+    inband = np.mean((hm(T) >= lo) & (hm(T) <= hi))
+    title(a, "Daily mean over the held-out box, 2023",
+          f"AORC inside the members' 10-90% band on {inband:.0%} of days; daily-mean RMSE: POWER "
+          f"{np.sqrt(np.mean((hm(P) - hm(T)) ** 2)):.2f}, product {np.sqrt(np.mean((hm(Em) - hm(T)) ** 2)):.2f} m/s")
+    top = suptitle(fig, "The product: calibrated diffusion ensemble, test year 2023 (fold store 0)",
+                   "Station fusion network (2019-21) + residual diffusion corrector trained on its 2022 errors, 25 "
+                   "members widened by scale band (factors fitted on 2022). Rows 1-2: per-cell statistics over the 365 "
+                   "days;\nonly the orange box is out of sample in space. Row 3: the daily mean over the box, where the "
+                   "band is the spread of the members' own box means.", top=.93)
+    fig.tight_layout(rect=(0, 0, 1, top))
+    wim.save(fig, "results_product_2023.png")
+
+
 def main(a):
+    if a.only == "product":
+        meta = json.loads((OUT / "obs_stations.json").read_text())["stations"]
+        d = pd.read_csv(OUT / "isd_domain_daily.csv", parse_dates=["date"])
+        isd = {k: g.set_index("date")["ws"] for k, g in d.groupby("key")}
+        F, X, E = load_fold(0, meta, isd)
+        return sheet_product(F, X, E)
     meta = json.loads((OUT / "obs_stations.json").read_text())["stations"]
     d = pd.read_csv(OUT / "isd_domain_daily.csv", parse_dates=["date"])
     isd = {k: g.set_index("date")["ws"] for k, g in d.groupby("key")}
@@ -463,9 +544,11 @@ def main(a):
     for day, lab in list(days.items())[:2]:
         sheet_texture(F, X, E, day, lab, spec)
     sheet_uncertainty(F, Eraw, E)
+    sheet_product(F, X, E)
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", nargs="*", default=["2023-02-10", "2023-04-22", "2023-11-16"])
+    ap.add_argument("--only", choices=["product"], help="draw only this sheet")
     main(ap.parse_args())

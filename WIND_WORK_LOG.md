@@ -747,8 +747,7 @@ Done 15 Nov: eval 1137883 read (7e), maps for the ablation, architecture and tar
 
 1. Done 15 Nov: two-stage control (job 1145932, 7d). The 2022 corrector beats retraining on 2019-22.
 2. Done 16 Nov: 1 km rung (section 7). Maps: job 1147372; copy `ladder_*.png` and `testyear_w1_L_s1337.png` when it ends.
-3. Decide the product for the paper: the calibrated two-stage diffusion ensemble (best on grid and ISD), the MSE
-   corrector (0.517, deterministic), or the 2019-22 network (0.544, one stage, best at Mesonet).
+3. Decided 16 Nov: the product is the calibrated two-stage diffusion ensemble (obsvalcal3). See `WIND_RESULTS.md`.
 4. Write the wind section of Paper 1 in the structure of the temperature section: architecture, inputs, target, error
    budget and offset, resolution ladder with LORO, stations on two networks, uncertainty, drift. AMS/JAMC style, plain
    language, no code or repository references in the text, no em dashes. Figures in the shared style
